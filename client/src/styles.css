@@ -815,6 +815,14 @@ button.trade-row,
   text-align: right;
 }
 
+/* Control separator between build and war buttons */
+.ctrl-sep {
+  width: 1px;
+  align-self: stretch;
+  background: #3a4756;
+  margin: 0 0.3rem;
+}
+
 /* Turn countdown */
 .turn-clock {
   font-weight: 700;

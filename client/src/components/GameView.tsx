@@ -1,17 +1,23 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
+  armyCap,
   canAfford,
   canBuildCityAt,
   canBuildRoadAt,
   canBuildSettlementAt,
+  canDeclareWarOn,
   canPlaceSetupRoad,
   canPlaceSetupSettlement,
   countBuildings,
   countRoads,
+  garrisonAt,
   playersOnTile,
+  sameCluster,
+  totalArmy,
   COSTS,
   PIECE_LIMITS,
   RESOURCE_TYPES,
+  SOLDIER_COST,
   type Action,
   type DevCardType,
   type Player,
@@ -41,7 +47,7 @@ export interface GameViewProps {
   onLeave: () => void;
 }
 
-type BuildMode = 'road' | 'settlement' | 'city' | null;
+type BuildMode = 'road' | 'settlement' | 'city' | 'train' | 'move' | 'attack' | null;
 
 function bagToList(bag: ResourceBag): ResourceType[] {
   const out: ResourceType[] = [];
@@ -78,6 +84,7 @@ export function GameView({ view, logs, announcements, onAction, onLeave }: GameV
   const [showTurnBanner, setShowTurnBanner] = useState(false);
   const [diceOverlay, setDiceOverlay] = useState<{ die1: number; die2: number; key: string } | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const [moveSource, setMoveSource] = useState<string | null>(null); // war: troop move source
 
   const me = game.players.find((p) => p.id === youId)!;
   const current = game.players[game.currentPlayerIndex];
@@ -94,6 +101,11 @@ export function GameView({ view, logs, announcements, onAction, onLeave }: GameV
   const canAffordSettlement = canAfford(me.resources, COSTS.settlement) && built.settlements < PIECE_LIMITS.settlements;
   const canAffordCity = canAfford(me.resources, COSTS.city) && built.cities < PIECE_LIMITS.cities;
   const canAffordDev = canAfford(me.resources, COSTS.devCard);
+  const myArmy = totalArmy(game.board, youId);
+  const canTrain = canAfford(me.resources, SOLDIER_COST) && myArmy < armyCap(game.board, youId);
+  const warPending = !!game.pendingWar;
+  const iAmDefender = warPending && game.pendingWar!.defenderId === youId;
+  const iAmAttacker = warPending && game.pendingWar!.attackerId === youId;
 
   // Big centered dice animation on each new roll.
   const prevRollKey = useRef('none');
@@ -159,9 +171,21 @@ export function GameView({ view, logs, announcements, onAction, onLeave }: GameV
         if (base || chained) edges.add(e.id);
       }
       for (const id of devRoad) edges.add(id);
+    } else if (mode === 'train' && canTrain) {
+      for (const v of Object.values(b.vertices)) if (v.building?.owner === youId) verts.add(v.id);
+    } else if (mode === 'move') {
+      if (!moveSource) {
+        for (const v of Object.values(b.vertices)) if (v.building?.owner === youId && garrisonAt(b, v.id) > 0) verts.add(v.id);
+      } else {
+        for (const v of Object.values(b.vertices))
+          if (v.id !== moveSource && v.building?.owner === youId && sameCluster(b, youId, moveSource, v.id)) verts.add(v.id);
+        verts.add(moveSource);
+      }
+    } else if (mode === 'attack') {
+      for (const v of Object.values(b.vertices)) if (canDeclareWarOn(b, youId, v.id)) verts.add(v.id);
     }
     return { highlightVertices: verts, highlightEdges: edges };
-  }, [game.board, game.lastSetupVertex, mode, devRoad, isMyTurn, youId]);
+  }, [game.board, game.lastSetupVertex, mode, devRoad, moveSource, isMyTurn, youId, canTrain]);
 
   const highlightTiles = useMemo(() => {
     const set = new Set<string>();
@@ -171,10 +195,22 @@ export function GameView({ view, logs, announcements, onAction, onLeave }: GameV
 
   const handleVertex = (vId: string) => {
     if (!isMyTurn || !highlightVertices.has(vId)) return;
-    if (mode === 'setup-settlement') onAction({ type: 'placeSetupSettlement', vertexId: vId });
-    else if (mode === 'settlement') onAction({ type: 'buildSettlement', vertexId: vId });
-    else if (mode === 'city') onAction({ type: 'buildCity', vertexId: vId });
-    setBuildMode(null);
+    if (mode === 'setup-settlement') { onAction({ type: 'placeSetupSettlement', vertexId: vId }); setBuildMode(null); }
+    else if (mode === 'settlement') { onAction({ type: 'buildSettlement', vertexId: vId }); setBuildMode(null); }
+    else if (mode === 'city') { onAction({ type: 'buildCity', vertexId: vId }); setBuildMode(null); }
+    else if (mode === 'train') { onAction({ type: 'trainSoldier', vertexId: vId }); /* stay in train mode */ }
+    else if (mode === 'attack') { onAction({ type: 'declareWar', targetVertexId: vId }); setBuildMode(null); }
+    else if (mode === 'move') {
+      if (!moveSource) {
+        setMoveSource(vId);
+      } else if (vId === moveSource) {
+        setMoveSource(null); // deselect
+      } else {
+        onAction({ type: 'moveSoldiers', fromVertexId: moveSource, toVertexId: vId, count: garrisonAt(game.board, moveSource) });
+        setMoveSource(null);
+        setBuildMode(null);
+      }
+    }
   };
 
   const handleEdge = (eId: string) => {
@@ -194,6 +230,11 @@ export function GameView({ view, logs, announcements, onAction, onLeave }: GameV
     else setRobberTile(tileId);
   };
 
+  const chooseMode = (m: BuildMode) => {
+    setBuildMode(m);
+    setMoveSource(null);
+  };
+
   const playDevCard = (type: DevCardType) => {
     if (type === 'knight') onAction({ type: 'playKnight' });
     else if (type === 'roadBuilding') setDevRoad([]);
@@ -208,6 +249,12 @@ export function GameView({ view, logs, announcements, onAction, onLeave }: GameV
 
   const instruction = () => {
     if (game.phase === 'ended') return '🏆 Game over';
+    if (warPending) {
+      const w = game.pendingWar!;
+      if (iAmDefender) return '⚔️ You are under attack! Fight or retreat.';
+      if (iAmAttacker) return `Waiting for ${nameById(w.defenderId)} to respond to your attack…`;
+      return `⚔️ ${nameById(w.attackerId)} is attacking ${nameById(w.defenderId)}.`;
+    }
     if (mustDiscard) return 'You must discard.';
     if (inRobber) return robberTile ? 'Choose a player to steal from.' : 'Click a tile to move the robber.';
     if (game.phase === 'discard') return 'Waiting for players to discard…';
@@ -216,10 +263,15 @@ export function GameView({ view, logs, announcements, onAction, onLeave }: GameV
     if (mode === 'devroad') return 'Pick up to 2 road spots, then confirm.';
     if (mode === 'setup-settlement') return 'Place a settlement.';
     if (mode === 'setup-road') return 'Place a road next to your settlement.';
+    if (mode === 'train') return 'Click your building to train a soldier there.';
+    if (mode === 'move') return moveSource ? 'Click a connected building to move the garrison there.' : 'Click a building with soldiers to move.';
+    if (mode === 'attack') return 'Click an enemy building your road reaches to attack it.';
     if (game.phase === 'rollDice') return 'Roll the dice (or play a dev card first).';
     if (buildMode) return `Click a highlighted spot to build a ${buildMode}.`;
-    return 'Build, trade, play a card, or end your turn.';
+    return 'Build, train, trade, attack, or end your turn.';
   };
+
+  const nameById = (id: string) => game.players.find((p) => p.id === id)?.name ?? '?';
 
   const winner = game.players.find((p) => p.id === game.winnerId);
 
@@ -254,7 +306,7 @@ export function GameView({ view, logs, announcements, onAction, onLeave }: GameV
                 {isYou && <span className="tag">you</span>}
                 {game.longestRoadOwner === p.id && <span className="tag" title="Longest Road">🛣️</span>}
                 {game.largestArmyOwner === p.id && <span className="tag" title="Largest Army">⚔️</span>}
-                <span className="pstats muted">{p.publicVictoryPoints}vp · {handCount}🃏 · {devCount}d</span>
+                <span className="pstats muted">{p.publicVictoryPoints}vp · {handCount}🃏 · {devCount}d · 🛡️{totalArmy(game.board, p.id)}</span>
               </li>
             );
           })}
@@ -334,12 +386,16 @@ export function GameView({ view, logs, announcements, onAction, onLeave }: GameV
               <button className="link-button" onClick={() => setDevRoad(null)}>Cancel</button>
             </>
           )}
-          {isMyTurn && game.phase === 'main' && devRoad === null && (
+          {isMyTurn && game.phase === 'main' && devRoad === null && !warPending && (
             <>
-              <button className={buildMode === 'road' ? 'sel' : ''} disabled={!canAffordRoad} onClick={() => setBuildMode('road')}>Road</button>
-              <button className={buildMode === 'settlement' ? 'sel' : ''} disabled={!canAffordSettlement} onClick={() => setBuildMode('settlement')}>Settlement</button>
-              <button className={buildMode === 'city' ? 'sel' : ''} disabled={!canAffordCity} onClick={() => setBuildMode('city')}>City</button>
-              {buildMode && <button className="link-button" onClick={() => setBuildMode(null)}>Cancel</button>}
+              <button className={buildMode === 'road' ? 'sel' : ''} disabled={!canAffordRoad} onClick={() => chooseMode('road')}>Road</button>
+              <button className={buildMode === 'settlement' ? 'sel' : ''} disabled={!canAffordSettlement} onClick={() => chooseMode('settlement')}>Settlement</button>
+              <button className={buildMode === 'city' ? 'sel' : ''} disabled={!canAffordCity} onClick={() => chooseMode('city')}>City</button>
+              <span className="ctrl-sep" />
+              <button className={buildMode === 'train' ? 'sel' : ''} disabled={!canTrain} onClick={() => chooseMode('train')} title="Train a soldier (1🌾 + 1⛰️)">Train ⚔️</button>
+              <button className={buildMode === 'move' ? 'sel' : ''} disabled={myArmy === 0} onClick={() => chooseMode('move')}>Move troops</button>
+              <button className={buildMode === 'attack' ? 'sel' : ''} disabled={myArmy === 0} onClick={() => chooseMode('attack')}>Attack</button>
+              {buildMode && <button className="link-button" onClick={() => chooseMode(null)}>Done</button>}
               <button onClick={() => onAction({ type: 'endTurn' })}>End Turn ▶</button>
             </>
           )}
@@ -384,6 +440,27 @@ export function GameView({ view, logs, announcements, onAction, onLeave }: GameV
         <ResourceSelect title="Monopoly — choose 1" target={1} confirmLabel="Take all"
           onConfirm={(bag) => { onAction({ type: 'playMonopoly', resource: bagToList(bag)[0] }); setModal(null); }}
           onCancel={() => setModal(null)} />
+      )}
+
+      {iAmDefender && game.pendingWar && (
+        <div className="modal-backdrop">
+          <div className="modal">
+            <h3>⚔️ Under attack!</h3>
+            <p>
+              <span style={{ color: playerColors[game.pendingWar.attackerId], fontWeight: 600 }}>
+                {nameById(game.pendingWar.attackerId)}
+              </span>{' '}
+              is attacking your building with <strong>{game.pendingWar.attackerArmy}</strong> soldiers.
+            </p>
+            <p className="muted small">
+              Your rallied defense: <strong>{game.pendingWar.defenderArmy}</strong> (+ home bonus, + dice). Defender wins ties.
+            </p>
+            <div className="modal-actions">
+              <button onClick={() => onAction({ type: 'respondToWar', response: 'fight' })}>Fight</button>
+              <button onClick={() => onAction({ type: 'respondToWar', response: 'retreat' })}>Retreat (give it up)</button>
+            </div>
+          </div>
+        </div>
       )}
 
       {game.phase === 'ended' && winner && (

@@ -151,6 +151,14 @@ export function Board({
             {v.building?.type === 'city' && (
               <rect x={v.position.x - 4} y={v.position.y - 4} width={8} height={8} fill="#15202b" />
             )}
+            {!!v.building?.soldiers && (
+              <g>
+                <circle cx={v.position.x + 11} cy={v.position.y - 11} r={7.5} fill="#1b1b1b" stroke="#fff" strokeWidth={1} />
+                <text x={v.position.x + 11} y={v.position.y - 8} textAnchor="middle" fontSize={9} fontWeight={700} fill="#fff">
+                  {v.building.soldiers}
+                </text>
+              </g>
+            )}
           </g>
         );
       })}
