@@ -161,13 +161,31 @@ export function GameView({ view, logs, announcements, onAction, onLeave }: GameV
     if (warAudioRef.current) warAudioRef.current.volume = volume;
   }, [volume]);
 
+  // Unlock the <audio> on the first user gesture so it can later be started by
+  // code (when war begins) without the browser's autoplay block.
+  const audioUnlocked = useRef(false);
+  useEffect(() => {
+    const unlock = () => {
+      const a = warAudioRef.current;
+      if (a && !audioUnlocked.current) {
+        a.muted = true;
+        a.play().then(() => { a.pause(); a.currentTime = 0; a.muted = false; audioUnlocked.current = true; }).catch(() => {});
+      }
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
+    };
+    window.addEventListener('pointerdown', unlock);
+    window.addEventListener('keydown', unlock);
+    return () => { window.removeEventListener('pointerdown', unlock); window.removeEventListener('keydown', unlock); };
+  }, []);
+
   // Heavy metal during war: play only the bundled mp3 (/war-metal.mp3).
   useEffect(() => {
     const a = warAudioRef.current;
     if (!a) return;
     if (game.pendingWar && !muted && volume > 0) {
       a.volume = volume;
-      void a.play().catch(() => { /* autoplay may be blocked until a click; 🔊/slider re-triggers */ });
+      void a.play().catch(() => { /* if still blocked, tapping 🔊 / the slider re-triggers it */ });
     } else {
       a.pause();
     }
