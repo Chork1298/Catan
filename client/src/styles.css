@@ -883,6 +883,18 @@ button.trade-row,
   margin: 0 0.3rem;
 }
 
+/* War music (embedded YouTube player, shown during war) */
+.war-music {
+  position: fixed;
+  left: 10px;
+  bottom: 10px;
+  z-index: 70;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 4px 16px #000a;
+  border: 2px solid #b00020;
+}
+
 /* Turn countdown */
 .turn-clock {
   font-weight: 700;

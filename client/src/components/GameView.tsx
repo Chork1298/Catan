@@ -39,7 +39,8 @@ import { DiceRoll } from './DiceRoll.js';
 import { DiceOverlay } from './DiceOverlay.js';
 import { TurnBanner } from './TurnBanner.js';
 import { BuildingInspector } from './BuildingInspector.js';
-import { playDing, startWarRiff, stopWarRiff } from '../sound.js';
+import { playDing } from '../sound.js';
+import { WarMusic } from './WarMusic.js';
 
 export interface GameViewProps {
   view: PlayerView;
@@ -99,9 +100,7 @@ export function GameView({ view, logs, announcements, onAction, onLeave }: GameV
   const [moveCount, setMoveCount] = useState(1);
   const [inspectVertex, setInspectVertex] = useState<string | null>(null); // building inspector (naming)
   const [peaceTribute, setPeaceTribute] = useState<ResourceBag | null>(null); // defender's peace builder
-  const [muted, setMuted] = useState(false);
-  const warAudioRef = useRef<HTMLAudioElement>(null);
-  const audioFailed = useRef(false);
+  const [muted, setMuted] = useState(true); // unmute via the 🔊 button (browser autoplay rule)
 
   const me = game.players.find((p) => p.id === youId)!;
   const current = game.players[game.currentPlayerIndex];
@@ -161,19 +160,6 @@ export function GameView({ view, logs, announcements, onAction, onLeave }: GameV
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
 
-  // Heavy metal during war: play the bundled loop, or a synth riff if absent.
-  useEffect(() => {
-    const atWar = !!game.pendingWar;
-    const a = warAudioRef.current;
-    if (atWar && !muted) {
-      if (a && !audioFailed.current) a.play().catch(() => { audioFailed.current = true; startWarRiff(); });
-      else startWarRiff();
-    } else {
-      if (a) a.pause();
-      stopWarRiff();
-    }
-    return () => stopWarRiff();
-  }, [game.pendingWar, muted]);
 
   const mode: 'setup-settlement' | 'setup-road' | 'devroad' | BuildMode = inSetup
     ? game.setupStep === 'settlement' ? 'setup-settlement' : 'setup-road'
@@ -327,7 +313,7 @@ export function GameView({ view, logs, announcements, onAction, onLeave }: GameV
 
   return (
     <div className="game-grid">
-      <audio ref={warAudioRef} src="/war-metal.ogg" loop preload="none" onError={() => { audioFailed.current = true; }} />
+      <WarMusic atWar={!!game.pendingWar} muted={muted} />
       <TurnBanner show={showTurnBanner && isMyTurn} />
       {diceOverlay && <DiceOverlay key={diceOverlay.key} die1={diceOverlay.die1} die2={diceOverlay.die2} onDone={() => setDiceOverlay(null)} />}
       <div className="announce-stack">
