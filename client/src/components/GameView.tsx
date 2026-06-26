@@ -484,7 +484,7 @@ export function GameView({ view, logs, announcements, onAction, onLeave }: GameV
             </>
           )}
         </div>
-        <ResourceHand resources={me.resources} />
+        <ResourceHand resources={me.resources} infinite={game.testMode} />
       </footer>
 
       {mustDiscard && (

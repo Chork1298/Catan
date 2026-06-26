@@ -243,4 +243,6 @@ export interface GameState {
   warEndsAt: number | null;
   /** Board radius the host chose in the lobby (2=small … 5=huge). */
   mapRadius: number;
+  /** Test mode: every player has effectively infinite resources (no discard on 7). */
+  testMode: boolean;
 }

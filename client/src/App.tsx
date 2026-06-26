@@ -27,6 +27,7 @@ export function App() {
           onSetTarget={(points) => sendAction({ type: 'setTargetPoints', points })}
           onSetMapSize={(radius) => sendAction({ type: 'setMapSize', radius })}
           onSetTurnTimer={(seconds) => sendAction({ type: 'setTurnTimer', seconds })}
+          onSetTestMode={(enabled) => sendAction({ type: 'setTestMode', enabled })}
           onStart={() => sendAction({ type: 'startGame' })}
           onLeave={leave}
         />

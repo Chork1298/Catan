@@ -30,7 +30,7 @@ function makeGame(): GameState {
     hasRolledThisTurn: true, hasPlayedDevCardThisTurn: false, setupQueueIndex: 0,
     setupStep: 'settlement', lastSetupVertex: null, pendingTrade: null, pendingWar: null, mustDiscard: [],
     longestRoadOwner: null, largestArmyOwner: null, winnerId: null, targetPoints: 10, turnEndsAt: null,
-    turnSeconds: 90, warEndsAt: null, mapRadius: 2,
+    turnSeconds: 90, warEndsAt: null, mapRadius: 2, testMode: false,
   };
 }
 

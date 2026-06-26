@@ -10,6 +10,7 @@ export type Action =
   | { type: 'setTargetPoints'; points: number }
   | { type: 'setMapSize'; radius: number }
   | { type: 'setTurnTimer'; seconds: number }
+  | { type: 'setTestMode'; enabled: boolean }
   | { type: 'startGame' }
   // setup phase
   | { type: 'placeSetupSettlement'; vertexId: string }

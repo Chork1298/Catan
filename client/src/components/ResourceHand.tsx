@@ -11,7 +11,7 @@ const ICON: Record<string, string> = {
 
 // Your own resource hand. Each chip's background matches that resource's hex tile
 // color (wheat chip = wheat-tile gold, etc.).
-export function ResourceHand({ resources }: { resources: ResourceBag }) {
+export function ResourceHand({ resources, infinite }: { resources: ResourceBag; infinite?: boolean }) {
   return (
     <div className="hand">
       {RESOURCE_TYPES.map((r) => (
@@ -21,7 +21,7 @@ export function ResourceHand({ resources }: { resources: ResourceBag }) {
           title={r}
           style={{ background: RESOURCE_FILL[r], color: RESOURCE_TEXT[r] }}
         >
-          {ICON[r]} {resources[r]}
+          {ICON[r]} {infinite ? '∞' : resources[r]}
         </span>
       ))}
     </div>

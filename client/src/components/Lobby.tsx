@@ -14,13 +14,14 @@ export interface LobbyProps {
   onSetTarget: (points: number) => void;
   onSetMapSize: (radius: number) => void;
   onSetTurnTimer: (seconds: number) => void;
+  onSetTestMode: (enabled: boolean) => void;
   onStart: () => void;
   onLeave: () => void;
 }
 
 // Pre-game lobby: room code to share, seated players, a color picker (no two
 // players may share a color), a host-set win target + map, and the Start button.
-export function Lobby({ view, onSetColor, onSetTarget, onSetMapSize, onSetTurnTimer, onStart, onLeave }: LobbyProps) {
+export function Lobby({ view, onSetColor, onSetTarget, onSetMapSize, onSetTurnTimer, onSetTestMode, onStart, onLeave }: LobbyProps) {
   const { game, youId } = view;
   const me = game.players.find((p) => p.id === youId);
   const isHost = !!me?.isHost;
@@ -100,6 +101,17 @@ export function Lobby({ view, onSetColor, onSetTarget, onSetMapSize, onSetTurnTi
           <span className="target-buttons">
             <button className="mini" onClick={() => onSetTurnTimer(game.turnSeconds - 10)} disabled={game.turnSeconds <= 10}>−</button>
             <button className="mini" onClick={() => onSetTurnTimer(game.turnSeconds + 10)} disabled={game.turnSeconds >= 180}>+</button>
+          </span>
+        )}
+      </div>
+
+      <div className="target-row">
+        <span>🧪 Test mode {game.testMode ? <strong>(infinite resources)</strong> : <span className="muted">off</span>}</span>
+        {isHost && (
+          <span className="target-buttons">
+            <button className="mini" onClick={() => onSetTestMode(!game.testMode)}>
+              {game.testMode ? 'Turn off' : 'Turn on'}
+            </button>
           </span>
         )}
       </div>

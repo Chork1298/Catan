@@ -127,7 +127,16 @@ export function createInitialGame(roomCode: string, host: Player): GameState {
     turnSeconds: 90,
     warEndsAt: null,
     mapRadius: 2,
+    testMode: false,
   };
+}
+
+/** Top every player up to a big resource stockpile (test mode = ~infinite). */
+const TEST_RESOURCE_AMOUNT = 50;
+function refillForTest(game: GameState): void {
+  for (const p of game.players) {
+    p.resources = { brick: TEST_RESOURCE_AMOUNT, wood: TEST_RESOURCE_AMOUNT, sheep: TEST_RESOURCE_AMOUNT, wheat: TEST_RESOURCE_AMOUNT, ore: TEST_RESOURCE_AMOUNT };
+  }
 }
 
 // ----- Per-player view (redaction) -----
@@ -161,6 +170,7 @@ export function applyAction(game: GameState, playerId: string, action: Action): 
 
   // After any successful, non-lobby action, recompute awards + points and check win.
   if (result.ok && game.phase !== 'lobby' && game.winnerId === null) {
+    if (game.testMode) refillForTest(game); // keep everyone topped up
     updateScores(game, result);
     checkElimination(game, result);
     const acting = game.players.find((p) => p.id === playerId);
@@ -281,6 +291,8 @@ function dispatch(game: GameState, playerId: string, action: Action): ApplyResul
       return setMapSize(game, playerId, action.radius);
     case 'setTurnTimer':
       return setTurnTimer(game, playerId, action.seconds);
+    case 'setTestMode':
+      return setTestMode(game, playerId, action.enabled);
     case 'startGame':
       return startGame(game, playerId);
     case 'placeSetupSettlement':
@@ -520,10 +532,10 @@ function rollDice(game: GameState, playerId: string): ApplyResult {
   const logs = [`${currentPlayer(game).name} rolled ${totalRoll} (${die1}+${die2}).`];
 
   if (totalRoll === 7) {
-    // Players holding more than the limit must discard half (rounded down).
-    game.mustDiscard = game.players
-      .filter((p) => bagTotal(p.resources) > ROBBER_DISCARD_LIMIT)
-      .map((p) => p.id);
+    // Players holding more than the limit must discard half (skipped in test mode).
+    game.mustDiscard = game.testMode
+      ? []
+      : game.players.filter((p) => bagTotal(p.resources) > ROBBER_DISCARD_LIMIT).map((p) => p.id);
     if (game.mustDiscard.length > 0) {
       game.phase = 'discard';
       logs.push('A 7! Players over 7 cards must discard half.');
@@ -1195,6 +1207,14 @@ function setColor(game: GameState, playerId: string, color: PlayerColor): ApplyR
   return { ok: true, logs: [`${player.name} chose ${color}.`] };
 }
 
+function setTestMode(game: GameState, playerId: string, enabled: boolean): ApplyResult {
+  if (game.phase !== 'lobby') return { ok: false, error: 'Can only change this in the lobby', logs: [] };
+  const host = game.players.find((p) => p.id === playerId);
+  if (!host?.isHost) return { ok: false, error: 'Only the host can toggle test mode', logs: [] };
+  game.testMode = enabled;
+  return { ok: true, logs: [`Test mode ${enabled ? 'ON — infinite resources' : 'OFF'}.`] };
+}
+
 function setTurnTimer(game: GameState, playerId: string, seconds: number): ApplyResult {
   if (game.phase !== 'lobby') return { ok: false, error: 'Can only change this in the lobby', logs: [] };
   const host = game.players.find((p) => p.id === playerId);
@@ -1243,6 +1263,7 @@ function startGame(game: GameState, playerId: string): ApplyResult {
   game.bank = { brick: bankPer, wood: bankPer, sheep: bankPer, wheat: bankPer, ore: bankPer };
 
   game.devDeck = shuffleInPlace(buildDevDeck());
+  if (game.testMode) refillForTest(game);
   game.phase = 'setupRound1';
   game.currentPlayerIndex = 0;
   game.setupQueueIndex = 0;
