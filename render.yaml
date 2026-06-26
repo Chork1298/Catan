@@ -6,7 +6,9 @@ services:
     name: hex-strategy-catan
     runtime: node
     plan: free
-    buildCommand: npm install && npm run build
+    # --include=dev forces devDependencies (vite/tsc/tsup) to install even though
+    # NODE_ENV=production would otherwise skip them, which breaks the build.
+    buildCommand: npm install --include=dev && npm run build
     startCommand: npm start
     envVars:
       - key: NODE_ENV
