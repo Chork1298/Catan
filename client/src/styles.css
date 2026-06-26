@@ -74,6 +74,45 @@ label {
   margin-top: 0.5rem;
 }
 
+.action-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  align-items: flex-start;
+}
+
+.divider {
+  text-align: center;
+  opacity: 0.5;
+  font-size: 0.85rem;
+  margin: 0.2rem 0;
+}
+
+.hint {
+  font-size: 0.8rem;
+  color: #ffcc66;
+}
+
+.small {
+  font-size: 0.8rem;
+}
+
+.req {
+  font-size: 0.75rem;
+  color: #ff8a80;
+  font-weight: 400;
+}
+
+.status-ok {
+  color: #7bd88f;
+  font-weight: 600;
+}
+
+.status-wait {
+  color: #ffcc66;
+  font-weight: 600;
+}
+
 .join-row {
   display: flex;
   gap: 0.5rem;
