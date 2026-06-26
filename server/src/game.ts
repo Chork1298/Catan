@@ -110,6 +110,7 @@ export function createInitialGame(roomCode: string, host: Player): GameState {
     largestArmyOwner: null,
     winnerId: null,
     targetPoints: WINNING_POINTS,
+    turnEndsAt: null,
   };
 }
 
@@ -156,6 +157,75 @@ function announce(result: ApplyResult, message: string): void {
   (result.announcements ??= []).push(message);
 }
 
+/** Greedily pick `n` resources from a bag (for auto-discarding on timeout). */
+function autoPick(bag: ResourceBag, n: number): ResourceBag {
+  const out = emptyBag();
+  let left = n;
+  for (const r of RESOURCE_TYPES) {
+    while (bag[r] - out[r] > 0 && left > 0) { out[r]++; left--; }
+  }
+  return out;
+}
+
+/**
+ * Auto-resolve the current player's turn when their timer expires, so the game
+ * never stalls. Plays the minimal sensible moves (roll, auto-discard, move robber
+ * to a random hex, end turn) and returns the combined log/announcements.
+ */
+export function forceTurnTimeout(game: GameState): ApplyResult {
+  if (game.phase === 'lobby' || game.phase === 'ended') return { ok: false, logs: [] };
+  const merged: ApplyResult = { ok: true, logs: [], announcements: [], privateLogs: {} };
+  const merge = (r: ApplyResult) => {
+    merged.logs.push(...r.logs);
+    for (const m of r.announcements ?? []) (merged.announcements ??= []).push(m);
+    for (const [k, v] of Object.entries(r.privateLogs ?? {})) (merged.privateLogs![k] ??= []).push(...v);
+    return r.ok;
+  };
+
+  merged.logs.push(`${currentPlayer(game).name}'s turn timed out — auto-resolving.`);
+
+  let guard = 0;
+  // Cast to string: game.phase is mutated by applyAction inside the loop, so the
+  // compiler's narrowing from the early return above doesn't apply at runtime.
+  while (guard++ < 40 && (game.phase as string) !== 'lobby' && (game.phase as string) !== 'ended') {
+    const cur = currentPlayer(game);
+    if (game.phase === 'setupRound1' || game.phase === 'setupRound2') {
+      if (game.setupStep === 'settlement') {
+        const v = Object.values(game.board.vertices).find((x) => canPlaceSetupSettlement(game.board, x.id));
+        if (!v || !merge(applyAction(game, cur.id, { type: 'placeSetupSettlement', vertexId: v.id }))) break;
+      } else {
+        const e = Object.values(game.board.edges).find(
+          (x) => game.lastSetupVertex && canPlaceSetupRoad(game.board, x.id, game.lastSetupVertex)
+        );
+        if (!e) break;
+        merge(applyAction(game, cur.id, { type: 'placeSetupRoad', edgeId: e.id }));
+        break; // this player's setup turn is done
+      }
+    } else if (game.phase === 'rollDice') {
+      if (!merge(applyAction(game, cur.id, { type: 'rollDice' }))) break;
+    } else if (game.phase === 'discard') {
+      for (const pid of [...game.mustDiscard]) {
+        const p = game.players.find((x) => x.id === pid)!;
+        merge(applyAction(game, pid, { type: 'discard', resources: autoPick(p.resources, Math.floor(bagTotal(p.resources) / 2)) }));
+      }
+      if (game.phase === 'discard') break; // couldn't clear — avoid spinning
+    } else if (game.phase === 'moveRobber') {
+      const tile = Object.values(game.board.tiles).find((t) => t.id !== game.board.robberTileId)!;
+      const victims = [...playersOnTile(game.board, tile.id)].filter(
+        (id) => id !== cur.id && bagTotal(game.players.find((p) => p.id === id)!.resources) > 0
+      );
+      if (!merge(applyAction(game, cur.id, { type: 'moveRobber', tileId: tile.id, stealFromPlayerId: victims[0] ?? null }))) break;
+    } else if (game.phase === 'main') {
+      if (game.pendingTrade) merge(applyAction(game, cur.id, { type: 'cancelTrade' }));
+      merge(applyAction(game, cur.id, { type: 'endTurn' }));
+      break;
+    } else {
+      break;
+    }
+  }
+  return merged;
+}
+
 function dispatch(game: GameState, playerId: string, action: Action): ApplyResult {
   switch (action.type) {
     case 'setColor':
@@ -188,6 +258,8 @@ function dispatch(game: GameState, playerId: string, action: Action): ApplyResul
       return proposeTrade(game, playerId, action.give, action.receive);
     case 'acceptTrade':
       return acceptTrade(game, playerId, action.tradeId);
+    case 'counterTrade':
+      return counterTrade(game, playerId, action.give, action.receive);
     case 'finalizeTrade':
       return finalizeTrade(game, playerId, action.tradeId, action.withPlayerId);
     case 'cancelTrade':
@@ -606,8 +678,29 @@ function proposeTrade(game: GameState, playerId: string, rawGive: ResourceBag, r
   if (!canAfford(player.resources, give))
     return { ok: false, error: "You don't have what you offered", logs: [] };
 
-  game.pendingTrade = { id: `trade${++tradeCounter}`, from: playerId, give, receive, acceptedBy: [] };
+  game.pendingTrade = { id: `trade${++tradeCounter}`, from: playerId, give, receive, acceptedBy: [], counters: [] };
   return { ok: true, logs: [`${player.name} offers ${describeBag(give)} for ${describeBag(receive)}.`] };
+}
+
+function counterTrade(game: GameState, playerId: string, rawGive: ResourceBag, rawReceive: ResourceBag): ApplyResult {
+  const trade = game.pendingTrade;
+  if (!trade) return { ok: false, error: 'No active trade', logs: [] };
+  if (trade.from === playerId) return { ok: false, error: "You can't counter your own offer", logs: [] };
+  const player = game.players.find((p) => p.id === playerId);
+  if (!player) return { ok: false, error: 'Player not found', logs: [] };
+  const give = cleanBag(rawGive);
+  const receive = cleanBag(rawReceive);
+  if (bagTotal(give) === 0 || bagTotal(receive) === 0)
+    return { ok: false, error: 'Counter must give and ask for something', logs: [] };
+  if (!canAfford(player.resources, give))
+    return { ok: false, error: "You don't have what you offered", logs: [] };
+
+  // Replace any prior counter from this player.
+  trade.counters = trade.counters.filter((c) => c.from !== playerId);
+  trade.counters.push({ from: playerId, give, receive });
+  // A counter implies they're no longer a plain accepter of the original.
+  trade.acceptedBy = trade.acceptedBy.filter((id) => id !== playerId);
+  return { ok: true, logs: [`${player.name} counters: gives ${describeBag(give)} for ${describeBag(receive)}.`] };
 }
 
 function acceptTrade(game: GameState, playerId: string, tradeId: string): ApplyResult {
@@ -626,15 +719,22 @@ function finalizeTrade(game: GameState, playerId: string, tradeId: string, withP
   const trade = game.pendingTrade;
   if (!trade || trade.id !== tradeId) return { ok: false, error: 'No such trade', logs: [] };
   if (trade.from !== playerId) return { ok: false, error: 'Only the proposer can finalize', logs: [] };
-  if (!trade.acceptedBy.includes(withPlayerId))
-    return { ok: false, error: 'That player has not accepted', logs: [] };
   const proposer = game.players.find((p) => p.id === playerId)!;
   const partner = game.players.find((p) => p.id === withPlayerId)!;
-  if (!canAfford(proposer.resources, trade.give) || !canAfford(partner.resources, trade.receive))
+  if (!partner) return { ok: false, error: 'No such player', logs: [] };
+
+  // Determine the terms: a counter from this player overrides the original offer.
+  const counter = trade.counters.find((c) => c.from === withPlayerId);
+  // What the proposer gives / receives in this deal.
+  const proposerGives = counter ? counter.receive : trade.give;
+  const proposerGets = counter ? counter.give : trade.receive;
+  if (!counter && !trade.acceptedBy.includes(withPlayerId))
+    return { ok: false, error: 'That player has not accepted', logs: [] };
+  if (!canAfford(proposer.resources, proposerGives) || !canAfford(partner.resources, proposerGets))
     return { ok: false, error: 'Someone no longer has the resources', logs: [] };
 
-  proposer.resources = addBag(subtractBag(proposer.resources, trade.give), trade.receive);
-  partner.resources = addBag(subtractBag(partner.resources, trade.receive), trade.give);
+  proposer.resources = addBag(subtractBag(proposer.resources, proposerGives), proposerGets);
+  partner.resources = addBag(subtractBag(partner.resources, proposerGets), proposerGives);
   game.pendingTrade = null;
   return { ok: true, logs: [`${proposer.name} traded with ${partner.name}.`] };
 }

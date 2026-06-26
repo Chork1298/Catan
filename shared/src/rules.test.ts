@@ -27,7 +27,7 @@ function makeGame(): GameState {
     devDeck: [], currentPlayerIndex: 0, turnNumber: 1, lastRoll: null,
     hasRolledThisTurn: true, hasPlayedDevCardThisTurn: false, setupQueueIndex: 0,
     setupStep: 'settlement', lastSetupVertex: null, pendingTrade: null, mustDiscard: [],
-    longestRoadOwner: null, largestArmyOwner: null, winnerId: null, targetPoints: 10,
+    longestRoadOwner: null, largestArmyOwner: null, winnerId: null, targetPoints: 10, turnEndsAt: null,
   };
 }
 
@@ -109,6 +109,18 @@ describe('placement rules', () => {
     // Give A a building on one endpoint -> now legal.
     board.vertices[edge.vertexIds[0]].building = { type: 'settlement', owner: 'A' };
     expect(canBuildRoadAt(board, edge.id, 'A')).toBe(true);
+  });
+
+  it("cannot build a road through an opponent's settlement", () => {
+    const board = generateBoard({ seed: 5 });
+    // Find a vertex with two distinct edges; use it as the shared corner.
+    const corner = Object.values(board.vertices).find((v) => v.edgeIds.length >= 2)!;
+    const [e1, e2] = corner.edgeIds;
+    board.edges[e1].road = 'A'; // A's road meets the corner via e1
+    expect(canBuildRoadAt(board, e2, 'A')).toBe(true); // normally A could continue onto e2
+
+    board.vertices[corner.id].building = { type: 'settlement', owner: 'B' }; // opponent blocks the corner
+    expect(canBuildRoadAt(board, e2, 'A')).toBe(false); // now blocked through it
   });
 });
 

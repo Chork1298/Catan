@@ -77,6 +77,7 @@ export function GameView({ view, logs, announcements, onAction, onLeave }: GameV
   const [modal, setModal] = useState<'yearOfPlenty' | 'monopoly' | null>(null);
   const [showTurnBanner, setShowTurnBanner] = useState(false);
   const [diceOverlay, setDiceOverlay] = useState<{ die1: number; die2: number; key: string } | null>(null);
+  const [now, setNow] = useState(() => Date.now());
 
   const me = game.players.find((p) => p.id === youId)!;
   const current = game.players[game.currentPlayerIndex];
@@ -116,6 +117,13 @@ export function GameView({ view, logs, announcements, onAction, onLeave }: GameV
       return () => clearTimeout(t);
     }
   }, [current?.id, youId, game.phase]);
+
+  // Tick once a second for the turn countdown.
+  useEffect(() => {
+    const i = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(i);
+  }, []);
+  const secsLeft = game.turnEndsAt ? Math.max(0, Math.ceil((game.turnEndsAt - now) / 1000)) : null;
 
   // Auto-scroll the log to the newest message.
   const logRef = useRef<HTMLDivElement>(null);
@@ -228,6 +236,7 @@ export function GameView({ view, logs, announcements, onAction, onLeave }: GameV
         <span className="muted">Turn {game.turnNumber}</span>
         <span className="muted">Win at {game.targetPoints}</span>
         {game.lastRoll && <DiceRoll die1={game.lastRoll.die1} die2={game.lastRoll.die2} />}
+        {secsLeft !== null && <span className={secsLeft <= 15 ? 'turn-clock low' : 'turn-clock'}>⏱ {secsLeft}s</span>}
         <button className="link-button" onClick={onLeave}>Leave</button>
       </header>
 
@@ -281,6 +290,7 @@ export function GameView({ view, logs, announcements, onAction, onLeave }: GameV
             youId={youId}
             myResources={me.resources}
             onAccept={() => onAction({ type: 'acceptTrade', tradeId: game.pendingTrade!.id })}
+            onCounter={(give, receive) => onAction({ type: 'counterTrade', tradeId: game.pendingTrade!.id, give, receive })}
             onFinalize={(withId) => onAction({ type: 'finalizeTrade', tradeId: game.pendingTrade!.id, withPlayerId: withId })}
             onCancel={() => onAction({ type: 'cancelTrade' })}
           />

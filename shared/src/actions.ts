@@ -27,6 +27,7 @@ export type Action =
   | { type: 'bankTrade'; give: ResourceType; receive: ResourceType }
   | { type: 'proposeTrade'; give: ResourceBag; receive: ResourceBag }
   | { type: 'acceptTrade'; tradeId: string }
+  | { type: 'counterTrade'; tradeId: string; give: ResourceBag; receive: ResourceBag }
   | { type: 'finalizeTrade'; tradeId: string; withPlayerId: string }
   | { type: 'cancelTrade' }
   // robber / discard

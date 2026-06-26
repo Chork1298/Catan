@@ -137,13 +137,22 @@ export interface DiceRoll {
 }
 
 /** A pending trade offer from one player to others. */
+/** A counter-offer from another player: they give `give` and want `receive`. */
+export interface CounterOffer {
+  from: string; // player id of the counter-proposer
+  give: ResourceBag; // what they would give
+  receive: ResourceBag; // what they want in return
+}
+
 export interface TradeOffer {
   id: string;
   from: string; // player id
   give: ResourceBag; // what the proposer gives
   receive: ResourceBag; // what the proposer wants
-  /** Player ids who have accepted; the proposer picks one to finalize. */
+  /** Player ids who have accepted the original offer; the proposer picks one. */
   acceptedBy: string[];
+  /** Counter-offers from other players the proposer may accept instead. */
+  counters: CounterOffer[];
 }
 
 export interface GameState {
@@ -174,4 +183,6 @@ export interface GameState {
   winnerId: string | null;
   /** Victory points required to win (host-adjustable in the lobby). */
   targetPoints: number;
+  /** Epoch ms when the current player's turn auto-ends, or null if no timer. */
+  turnEndsAt: number | null;
 }

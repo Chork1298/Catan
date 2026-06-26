@@ -787,6 +787,22 @@ button.trade-row,
   text-align: right;
 }
 
+/* Turn countdown */
+.turn-clock {
+  font-weight: 700;
+  color: #9fd6a0;
+}
+
+.turn-clock.low {
+  color: #ff7b6b;
+  animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
 /* Narrow screens: stack and allow scrolling */
 @media (max-width: 900px) {
   .game-shell {

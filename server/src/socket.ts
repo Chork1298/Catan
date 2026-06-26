@@ -4,7 +4,7 @@
 
 import type { Server, Socket } from 'socket.io';
 import type { ClientToServerEvents, ServerToClientEvents } from '@catan/shared';
-import { applyAction, toPlayerView } from './game.js';
+import { applyAction, forceTurnTimeout, toPlayerView } from './game.js';
 import {
   createRoom,
   findRoomBySocket,
@@ -43,6 +43,44 @@ function sendPrivateLogs(io: GameServer, room: Room, privateLogs: Record<string,
   for (const { playerId, socketId } of roomSockets(room)) {
     for (const line of privateLogs[playerId] ?? []) io.to(socketId).emit('gameLog', line);
   }
+}
+
+const TURN_MS = 90_000;
+
+/** Identifies the current turn; changes when the active player/turn changes. */
+function turnKeyOf(room: Room): string | null {
+  const g = room.game;
+  if (g.phase === 'lobby' || g.phase === 'ended') return null;
+  return `${g.turnNumber}:${g.currentPlayerIndex}`;
+}
+
+/** Arm/clear the 90s turn timer when the turn changes. Sets game.turnEndsAt so
+ *  clients can show a countdown. Must run BEFORE broadcasting state. */
+function syncTurnTimer(io: GameServer, room: Room): void {
+  const key = turnKeyOf(room);
+  if (key === room.turnKey) return; // same turn — let the running timer continue
+  if (room.turnTimer) clearTimeout(room.turnTimer);
+  room.turnTimer = null;
+  room.turnKey = key;
+  if (key === null) {
+    room.game.turnEndsAt = null;
+    return;
+  }
+  room.game.turnEndsAt = Date.now() + TURN_MS;
+  room.turnTimer = setTimeout(() => onTurnTimeout(io, room), TURN_MS);
+}
+
+/** Fired when a turn runs out of time: auto-resolve and broadcast. */
+function onTurnTimeout(io: GameServer, room: Room): void {
+  room.turnTimer = null;
+  if (!getRoom(room.code)) return; // room gone
+  const result = forceTurnTimeout(room.game);
+  if (!result.ok) return;
+  for (const line of result.logs) broadcastLog(io, room, line);
+  if (result.privateLogs) sendPrivateLogs(io, room, result.privateLogs);
+  for (const msg of result.announcements ?? []) broadcastAnnounce(io, room, msg);
+  syncTurnTimer(io, room); // re-arm for the next player
+  broadcastState(io, room);
 }
 
 export function registerSocketHandlers(io: GameServer): void {
@@ -100,14 +138,19 @@ export function registerSocketHandlers(io: GameServer): void {
       for (const line of result.logs) broadcastLog(io, room, line);
       if (result.privateLogs) sendPrivateLogs(io, room, result.privateLogs);
       for (const msg of result.announcements ?? []) broadcastAnnounce(io, room, msg);
+      syncTurnTimer(io, room); // update turnEndsAt + (re)arm before broadcasting
       broadcastState(io, room);
     });
 
     socket.on('disconnect', () => {
       const found = markDisconnected(socket.id);
-      if (found && getRoom(found.room.code)) {
+      if (!found) return;
+      if (getRoom(found.room.code)) {
         broadcastLog(io, found.room, `A player disconnected.`);
         broadcastState(io, found.room);
+      } else if (found.room.turnTimer) {
+        clearTimeout(found.room.turnTimer); // room was cleaned up; stop its timer
+        found.room.turnTimer = null;
       }
     });
   });

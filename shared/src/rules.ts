@@ -46,15 +46,20 @@ export function vertexConnectedToPlayer(board: Board, vertexId: string, playerId
 
 /**
  * Can this player legally build a road on this edge?
- * Connected if an endpoint holds their building, or an edge meeting an endpoint
- * holds their road. (Through-opponent-settlement blocking is omitted for v1.)
+ * Connected if an endpoint holds their building, or one of their roads meets the
+ * endpoint — but an OPPONENT's building on that endpoint blocks continuation
+ * through it (you can't build a road past someone else's settlement/city).
  */
 export function canBuildRoadAt(board: Board, edgeId: string, playerId: string): boolean {
   const edge = board.edges[edgeId];
   if (!edge || edge.road) return false;
   return edge.vertexIds.some((vId) => {
     const v = board.vertices[vId];
+    // An opponent's building on this corner blocks connecting through it.
+    if (v.building && v.building.owner !== playerId) return false;
+    // Your own building here always connects.
     if (v.building?.owner === playerId) return true;
+    // Otherwise an empty corner connects if one of your roads meets it.
     return v.edgeIds.some((eId) => eId !== edgeId && board.edges[eId].road === playerId);
   });
 }

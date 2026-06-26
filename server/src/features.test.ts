@@ -4,7 +4,7 @@ import {
   canPlaceSetupSettlement,
   type GameState,
 } from '@catan/shared';
-import { applyAction, createInitialGame, createPlayer } from './game.js';
+import { applyAction, createInitialGame, createPlayer, forceTurnTimeout } from './game.js';
 
 function startedGame(): GameState {
   const host = createPlayer('A', 'Alice', true, 0);
@@ -167,6 +167,54 @@ describe('player-to-player trading', () => {
       receive: { brick: 0, wood: 0, sheep: 0, wheat: 0, ore: 1 },
     });
     expect(applyAction(game, 'B', { type: 'acceptTrade', tradeId: game.pendingTrade!.id }).ok).toBe(false);
+  });
+
+  it('lets another player counter, and the proposer finalize on counter terms', () => {
+    const game = startedGame();
+    const [a, b] = game.players;
+    a.resources = { brick: 0, wood: 1, sheep: 0, wheat: 1, ore: 0 };
+    b.resources = { brick: 0, wood: 0, sheep: 1, wheat: 0, ore: 0 };
+
+    applyAction(game, 'A', {
+      type: 'proposeTrade',
+      give: { brick: 0, wood: 1, sheep: 0, wheat: 0, ore: 0 },
+      receive: { brick: 0, wood: 0, sheep: 0, wheat: 0, ore: 1 },
+    });
+    const tradeId = game.pendingTrade!.id;
+    // B counters: B gives 1 sheep, wants 1 wheat.
+    expect(applyAction(game, 'B', {
+      type: 'counterTrade', tradeId,
+      give: { brick: 0, wood: 0, sheep: 1, wheat: 0, ore: 0 },
+      receive: { brick: 0, wood: 0, sheep: 0, wheat: 1, ore: 0 },
+    }).ok).toBe(true);
+    expect(game.pendingTrade!.counters).toHaveLength(1);
+
+    // A finalizes with B on the counter terms: A gives wheat, gets sheep.
+    expect(applyAction(game, 'A', { type: 'finalizeTrade', tradeId, withPlayerId: 'B' }).ok).toBe(true);
+    expect(a.resources.sheep).toBe(1);
+    expect(a.resources.wheat).toBe(0);
+    expect(b.resources.wheat).toBe(1);
+    expect(b.resources.sheep).toBe(0);
+  });
+});
+
+describe('turn timeout', () => {
+  it('auto-ends the active turn (main phase)', () => {
+    const game = startedGame(); // A's main phase, already rolled
+    const res = forceTurnTimeout(game);
+    expect(res.ok).toBe(true);
+    expect(game.currentPlayerIndex).toBe(1);
+    expect(game.phase).toBe('rollDice');
+  });
+
+  it('auto-rolls and passes the turn when timing out before rolling', () => {
+    const game = startedGame();
+    game.phase = 'rollDice';
+    game.hasRolledThisTurn = false;
+    forceTurnTimeout(game);
+    // The turn resolves and moves on to the next player.
+    expect(game.currentPlayerIndex).toBe(1);
+    expect(game.phase).toBe('rollDice');
   });
 });
 
