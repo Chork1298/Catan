@@ -21,7 +21,12 @@ export function App() {
   if (view.game.phase === 'lobby') {
     return (
       <main className="app-shell">
-        <Lobby view={view} onStart={() => sendAction({ type: 'startGame' })} onLeave={leave} />
+        <Lobby
+          view={view}
+          onSetColor={(color) => sendAction({ type: 'setColor', color })}
+          onStart={() => sendAction({ type: 'startGame' })}
+          onLeave={leave}
+        />
       </main>
     );
   }

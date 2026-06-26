@@ -358,6 +358,167 @@ button.trade-row,
   text-align: center;
 }
 
+/* Dice in the header */
+.dice {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.die {
+  font-size: 1.8rem;
+  line-height: 1;
+}
+
+.die.shaking {
+  animation: shake 0.18s infinite;
+}
+
+@keyframes shake {
+  0% { transform: translateY(0) rotate(0deg); }
+  25% { transform: translateY(-2px) rotate(-8deg); }
+  75% { transform: translateY(2px) rotate(8deg); }
+  100% { transform: translateY(0) rotate(0deg); }
+}
+
+.dice-total {
+  font-weight: 700;
+  margin-left: 0.2rem;
+}
+
+/* "Your turn" banner */
+.turn-banner-wrap {
+  position: fixed;
+  top: 16%;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  z-index: 60;
+  pointer-events: none;
+}
+
+.turn-banner {
+  background: rgba(46, 125, 50, 0.96);
+  color: #fff;
+  font-size: 2rem;
+  font-weight: 800;
+  padding: 0.8rem 2rem;
+  border-radius: 14px;
+  box-shadow: 0 8px 28px #000a;
+  animation: pop 0.3s ease;
+}
+
+@keyframes pop {
+  from { transform: scale(0.7); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+/* Inventory + cost card */
+.info-row {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin: 0.9rem 0;
+}
+
+.inventory {
+  display: flex;
+  gap: 0.9rem;
+  flex-wrap: wrap;
+  align-items: center;
+  background: #131a22;
+  padding: 0.5rem 0.8rem;
+  border-radius: 8px;
+}
+
+.inv-item {
+  white-space: nowrap;
+  font-size: 0.9rem;
+}
+
+.cost-card {
+  background: #131a22;
+  padding: 0.5rem 0.8rem;
+  border-radius: 8px;
+  min-width: 180px;
+}
+
+.cost-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.3rem 0 0;
+}
+
+.cost-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.85rem;
+  padding: 0.1rem 0;
+}
+
+.cost-icons {
+  letter-spacing: 1px;
+}
+
+/* Lobby color picker */
+.color-picker {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 1rem 0;
+  flex-wrap: wrap;
+}
+
+.color-swatch {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 2px solid #0006;
+  padding: 0;
+  cursor: pointer;
+}
+
+.color-swatch.mine {
+  outline: 3px solid #fff;
+  outline-offset: 1px;
+}
+
+.color-swatch:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+/* Player rows fit on one line */
+.player-list li {
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+
+.pname {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 96px;
+  font-weight: 600;
+}
+
+.pstats {
+  margin-left: auto;
+  white-space: nowrap;
+  font-size: 0.76rem;
+}
+
+.player-list .tag {
+  flex-shrink: 0;
+}
+
+/* Bigger chat log */
+.log {
+  max-height: 360px;
+}
+
 @media (max-width: 800px) {
   .game {
     grid-template-columns: 1fr;

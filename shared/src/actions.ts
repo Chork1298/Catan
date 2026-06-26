@@ -2,10 +2,11 @@
 // The client never mutates game state directly; it sends an Action and the
 // server (authoritative) validates, applies, and broadcasts the result.
 
-import type { ResourceBag, ResourceType, GameState } from './types.js';
+import type { ResourceBag, ResourceType, GameState, PlayerColor } from './types.js';
 
 export type Action =
   // lobby
+  | { type: 'setColor'; color: PlayerColor }
   | { type: 'startGame' }
   // setup phase
   | { type: 'placeSetupSettlement'; vertexId: string }

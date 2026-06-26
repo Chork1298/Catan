@@ -1,4 +1,5 @@
 import { RESOURCE_TYPES, type ResourceBag } from '@catan/shared';
+import { RESOURCE_FILL, RESOURCE_TEXT } from '../colors.js';
 
 const ICON: Record<string, string> = {
   brick: '🧱',
@@ -8,12 +9,18 @@ const ICON: Record<string, string> = {
   ore: '⛰️',
 };
 
-// Your own resource hand (opponents' hands are shown only as totals elsewhere).
+// Your own resource hand. Each chip's background matches that resource's hex tile
+// color (wheat chip = wheat-tile gold, etc.).
 export function ResourceHand({ resources }: { resources: ResourceBag }) {
   return (
     <div className="hand">
       {RESOURCE_TYPES.map((r) => (
-        <span key={r} className="hand-chip" title={r}>
+        <span
+          key={r}
+          className="hand-chip"
+          title={r}
+          style={{ background: RESOURCE_FILL[r], color: RESOURCE_TEXT[r] }}
+        >
           {ICON[r]} {resources[r]}
         </span>
       ))}

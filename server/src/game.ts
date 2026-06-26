@@ -37,6 +37,7 @@ import {
   type DevCardType,
   type GameState,
   type Player,
+  type PlayerColor,
   type PlayerView,
   type ResourceBag,
   type ResourceType,
@@ -147,6 +148,8 @@ export function applyAction(game: GameState, playerId: string, action: Action): 
 
 function dispatch(game: GameState, playerId: string, action: Action): ApplyResult {
   switch (action.type) {
+    case 'setColor':
+      return setColor(game, playerId, action.color);
     case 'startGame':
       return startGame(game, playerId);
     case 'placeSetupSettlement':
@@ -365,6 +368,13 @@ function rollDice(game: GameState, playerId: string): ApplyResult {
   const { gains, bankSpend } = distributeForRoll(game, totalRoll);
   for (const p of game.players) p.resources = addBag(p.resources, gains[p.id]);
   game.bank = subtractBag(game.bank, bankSpend);
+
+  // Log what each player gained from this roll.
+  for (const p of game.players) {
+    const parts = RESOURCE_TYPES.filter((r) => gains[p.id][r] > 0).map((r) => `${gains[p.id][r]} ${r}`);
+    if (parts.length > 0) logs.push(`${p.name} got ${parts.join(', ')}.`);
+  }
+
   game.phase = 'main';
   return { ok: true, logs };
 }
@@ -633,6 +643,17 @@ function playMonopoly(game: GameState, playerId: string, resource: ResourceType)
   player.resources[resource] += taken;
   game.hasPlayedDevCardThisTurn = true;
   return { ok: true, logs: [`${player.name} played Monopoly on ${resource} (took ${taken}).`] };
+}
+
+function setColor(game: GameState, playerId: string, color: PlayerColor): ApplyResult {
+  if (game.phase !== 'lobby') return { ok: false, error: 'Can only change color in the lobby', logs: [] };
+  if (!PLAYER_COLORS.includes(color)) return { ok: false, error: 'Invalid color', logs: [] };
+  if (game.players.some((p) => p.id !== playerId && p.color === color))
+    return { ok: false, error: 'That color is taken', logs: [] };
+  const player = game.players.find((p) => p.id === playerId);
+  if (!player) return { ok: false, error: 'Player not found', logs: [] };
+  player.color = color;
+  return { ok: true, logs: [`${player.name} chose ${color}.`] };
 }
 
 function startGame(game: GameState, playerId: string): ApplyResult {

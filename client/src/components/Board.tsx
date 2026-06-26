@@ -1,22 +1,13 @@
 import { useMemo } from 'react';
-import {
-  boardViewBox,
-  hexCorners,
-  type Board as BoardData,
-  type TileResource,
-} from '@catan/shared';
-
-const RESOURCE_FILL: Record<TileResource, string> = {
-  wood: '#2e7d32',
-  brick: '#bf5b30',
-  sheep: '#8bc34a',
-  wheat: '#e3b505',
-  ore: '#78909c',
-  desert: '#d7c79e',
-};
+import { boardViewBox, hexCorners, type Board as BoardData } from '@catan/shared';
+import { RESOURCE_FILL } from '../colors.js';
 
 // High-production numbers (6 and 8) are drawn red, as on a real board.
 const isHotNumber = (n?: number) => n === 6 || n === 8;
+
+// Catan probability pips: how many ways two dice make this number (out of 36).
+// 2/12 -> 1 dot ... 6/8 -> 5 dots. Equals 6 - |7 - n|.
+const pipCount = (n: number) => 6 - Math.abs(7 - n);
 
 export interface BoardProps {
   board: BoardData;
@@ -67,17 +58,27 @@ export function Board({
             />
             {tile.numberToken !== undefined && (
               <>
-                <circle cx={tile.center.x} cy={tile.center.y} r={16} fill="#f4ecd8" stroke="#15202b" />
+                <circle cx={tile.center.x} cy={tile.center.y} r={17} fill="#f4ecd8" stroke="#15202b" />
                 <text
                   x={tile.center.x}
-                  y={tile.center.y + 5}
+                  y={tile.center.y + 1}
                   textAnchor="middle"
-                  fontSize={16}
+                  fontSize={15}
                   fontWeight={700}
                   fill={isHotNumber(tile.numberToken) ? '#c62828' : '#15202b'}
                 >
                   {tile.numberToken}
                 </text>
+                {/* Probability pips — more dots = more likely to be rolled. */}
+                {Array.from({ length: pipCount(tile.numberToken) }).map((_, i, arr) => (
+                  <circle
+                    key={i}
+                    cx={tile.center.x + (i - (arr.length - 1) / 2) * 3.6}
+                    cy={tile.center.y + 10}
+                    r={1.5}
+                    fill={isHotNumber(tile.numberToken) ? '#c62828' : '#15202b'}
+                  />
+                ))}
               </>
             )}
             {hasRobber && (

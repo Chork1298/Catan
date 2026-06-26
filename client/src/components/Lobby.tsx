@@ -1,18 +1,20 @@
-import type { PlayerView } from '@catan/shared';
+import { PLAYER_COLORS, type PlayerColor, type PlayerView } from '@catan/shared';
 
 export interface LobbyProps {
   view: PlayerView;
+  onSetColor: (color: PlayerColor) => void;
   onStart: () => void;
   onLeave: () => void;
 }
 
-// Pre-game lobby: shows the room code to share, the seated players, and (for the
-// host) a Start button once at least 2 players are present.
-export function Lobby({ view, onStart, onLeave }: LobbyProps) {
+// Pre-game lobby: room code to share, seated players, a color picker (no two
+// players may share a color), and the host's Start button.
+export function Lobby({ view, onSetColor, onStart, onLeave }: LobbyProps) {
   const { game, youId } = view;
   const me = game.players.find((p) => p.id === youId);
   const isHost = !!me?.isHost;
   const canStart = isHost && game.players.length >= 2;
+  const takenByOthers = new Set(game.players.filter((p) => p.id !== youId).map((p) => p.color));
 
   return (
     <div className="lobby">
@@ -26,13 +28,31 @@ export function Lobby({ view, onStart, onLeave }: LobbyProps) {
         {game.players.map((p) => (
           <li key={p.id}>
             <span className="swatch" style={{ background: p.color }} />
-            {p.name}
+            <span className="pname" style={{ color: p.color }}>{p.name}</span>
             {p.isHost && <span className="tag">host</span>}
             {p.id === youId && <span className="tag">you</span>}
             {!p.connected && <span className="tag muted">offline</span>}
           </li>
         ))}
       </ul>
+
+      <div className="color-picker">
+        <span>Your color:</span>
+        {PLAYER_COLORS.map((c) => {
+          const taken = takenByOthers.has(c);
+          const mine = me?.color === c;
+          return (
+            <button
+              key={c}
+              className={`color-swatch ${mine ? 'mine' : ''}`}
+              style={{ background: c }}
+              disabled={taken}
+              title={taken ? `${c} (taken)` : c}
+              onClick={() => onSetColor(c)}
+            />
+          );
+        })}
+      </div>
 
       {isHost ? (
         <button disabled={!canStart} onClick={onStart}>

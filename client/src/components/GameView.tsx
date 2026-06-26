@@ -1,14 +1,20 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
+  canAfford,
   canBuildCityAt,
   canBuildRoadAt,
   canBuildSettlementAt,
   canPlaceSetupRoad,
   canPlaceSetupSettlement,
+  countBuildings,
+  countRoads,
   playersOnTile,
+  COSTS,
+  PIECE_LIMITS,
   RESOURCE_TYPES,
   type Action,
   type DevCardType,
+  type Player,
   type PlayerView,
   type ResourceBag,
   type ResourceType,
@@ -18,6 +24,11 @@ import { ResourceHand } from './ResourceHand.js';
 import { ResourceSelect } from './ResourceSelect.js';
 import { TradePanel } from './TradePanel.js';
 import { DevCardPanel } from './DevCardPanel.js';
+import { Inventory } from './Inventory.js';
+import { CostCard } from './CostCard.js';
+import { DiceRoll } from './DiceRoll.js';
+import { TurnBanner } from './TurnBanner.js';
+import { playDing } from '../sound.js';
 
 export interface GameViewProps {
   view: PlayerView;
@@ -34,12 +45,37 @@ function bagToList(bag: ResourceBag): ResourceType[] {
   return out;
 }
 
+/** Wrap any player name appearing in a log line with that player's color. */
+function colorizeLog(line: string, players: Player[]): ReactNode[] {
+  const sorted = [...players].sort((a, b) => b.name.length - a.name.length);
+  let nodes: ReactNode[] = [line];
+  for (const p of sorted) {
+    nodes = nodes.flatMap((node) => {
+      if (typeof node !== 'string' || !node.includes(p.name)) return [node];
+      const out: ReactNode[] = [];
+      const parts = node.split(p.name);
+      parts.forEach((part, i) => {
+        if (part) out.push(part);
+        if (i < parts.length - 1)
+          out.push(
+            <span key={`${p.id}-${i}-${out.length}`} style={{ color: p.color, fontWeight: 600 }}>
+              {p.name}
+            </span>
+          );
+      });
+      return out;
+    });
+  }
+  return nodes;
+}
+
 export function GameView({ view, logs, onAction, onLeave }: GameViewProps) {
   const { game, youId, opponentSecrets } = view;
   const [buildMode, setBuildMode] = useState<BuildMode>(null);
-  const [devRoad, setDevRoad] = useState<string[] | null>(null); // road-building selection
-  const [robberTile, setRobberTile] = useState<string | null>(null); // chosen, picking victim
+  const [devRoad, setDevRoad] = useState<string[] | null>(null);
+  const [robberTile, setRobberTile] = useState<string | null>(null);
   const [modal, setModal] = useState<'yearOfPlenty' | 'monopoly' | null>(null);
+  const [showTurnBanner, setShowTurnBanner] = useState(false);
 
   const me = game.players.find((p) => p.id === youId)!;
   const current = game.players[game.currentPlayerIndex];
@@ -49,7 +85,35 @@ export function GameView({ view, logs, onAction, onLeave }: GameViewProps) {
   const mustDiscard = game.mustDiscard.includes(youId);
   const inRobber = game.phase === 'moveRobber' && isMyTurn;
 
-  // Effective placement mode for vertex/edge highlighting.
+  // --- Affordability + piece limits (for greying out build buttons) ---
+  const built = countBuildings(game.board, youId);
+  const roadsUsed = countRoads(game.board, youId);
+  const canAffordRoad = canAfford(me.resources, COSTS.road) && roadsUsed < PIECE_LIMITS.roads;
+  const canAffordSettlement = canAfford(me.resources, COSTS.settlement) && built.settlements < PIECE_LIMITS.settlements;
+  const canAffordCity = canAfford(me.resources, COSTS.city) && built.cities < PIECE_LIMITS.cities;
+  const canAffordDev = canAfford(me.resources, COSTS.devCard);
+
+  // --- "Your turn" banner + ding on transition to your turn ---
+  const prevCurrentId = useRef<string | null>(null);
+  useEffect(() => {
+    const curId = current?.id ?? null;
+    const justBecameMine =
+      curId === youId && prevCurrentId.current !== youId && game.phase !== 'lobby' && game.phase !== 'ended';
+    prevCurrentId.current = curId;
+    if (justBecameMine) {
+      setShowTurnBanner(true);
+      playDing();
+      const t = setTimeout(() => setShowTurnBanner(false), 2000);
+      return () => clearTimeout(t);
+    }
+  }, [current?.id, youId, game.phase]);
+
+  // --- Auto-scroll the log to the newest message ---
+  const logRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
+  }, [logs]);
+
   const mode: 'setup-settlement' | 'setup-road' | 'devroad' | BuildMode = inSetup
     ? game.setupStep === 'settlement' ? 'setup-settlement' : 'setup-road'
     : devRoad !== null ? 'devroad'
@@ -71,16 +135,13 @@ export function GameView({ view, logs, onAction, onLeave }: GameViewProps) {
     } else if (mode === 'road') {
       for (const e of Object.values(b.edges)) if (canBuildRoadAt(b, e.id, youId)) edges.add(e.id);
     } else if (mode === 'devroad' && devRoad) {
-      // Legal base roads, plus edges chained off already-selected ones.
       for (const e of Object.values(b.edges)) {
         if (e.road || devRoad.includes(e.id)) continue;
         const base = canBuildRoadAt(b, e.id, youId);
-        const chained = devRoad.some((sel) =>
-          b.edges[sel].vertexIds.some((v) => e.vertexIds.includes(v))
-        );
+        const chained = devRoad.some((sel) => b.edges[sel].vertexIds.some((v) => e.vertexIds.includes(v)));
         if (base || chained) edges.add(e.id);
       }
-      for (const id of devRoad) edges.add(id); // keep picks visible
+      for (const id of devRoad) edges.add(id);
     }
     return { highlightVertices: verts, highlightEdges: edges };
   }, [game.board, game.lastSetupVertex, mode, devRoad, isMyTurn, youId]);
@@ -127,6 +188,7 @@ export function GameView({ view, logs, onAction, onLeave }: GameViewProps) {
 
   const handTotal = bagToList(me.resources).length;
   const canPlayDev = isMyTurn && !game.hasPlayedDevCardThisTurn && (game.phase === 'main' || game.phase === 'rollDice');
+  const rollKey = game.lastRoll ? `${game.turnNumber}:${game.lastRoll.die1}:${game.lastRoll.die2}` : 'none';
 
   const instruction = () => {
     if (game.phase === 'ended') {
@@ -148,11 +210,13 @@ export function GameView({ view, logs, onAction, onLeave }: GameViewProps) {
 
   return (
     <div className="game">
+      <TurnBanner show={showTurnBanner} />
+
       <div className="game-main">
         <div className="game-header">
           <span>Room <strong>{game.roomCode}</strong></span>
           <span className="muted">Turn {game.turnNumber}</span>
-          {game.lastRoll && <span>🎲 {game.lastRoll.total} ({game.lastRoll.die1}+{game.lastRoll.die2})</span>}
+          {game.lastRoll && <DiceRoll die1={game.lastRoll.die1} die2={game.lastRoll.die2} rollKey={rollKey} />}
         </div>
 
         <Board
@@ -168,7 +232,6 @@ export function GameView({ view, logs, onAction, onLeave }: GameViewProps) {
 
         <p className="instruction">{instruction()}</p>
 
-        {/* Action controls */}
         <div className="controls">
           {isMyTurn && game.phase === 'rollDice' && (
             <button onClick={() => onAction({ type: 'rollDice' })}>🎲 Roll Dice</button>
@@ -185,9 +248,9 @@ export function GameView({ view, logs, onAction, onLeave }: GameViewProps) {
 
           {isMyTurn && game.phase === 'main' && devRoad === null && (
             <>
-              <button className={buildMode === 'road' ? 'sel' : ''} onClick={() => setBuildMode('road')}>Road (🧱🌲)</button>
-              <button className={buildMode === 'settlement' ? 'sel' : ''} onClick={() => setBuildMode('settlement')}>Settlement (🧱🌲🐑🌾)</button>
-              <button className={buildMode === 'city' ? 'sel' : ''} onClick={() => setBuildMode('city')}>City (🌾🌾⛰️⛰️⛰️)</button>
+              <button className={buildMode === 'road' ? 'sel' : ''} disabled={!canAffordRoad} onClick={() => setBuildMode('road')}>Road (🧱🌲)</button>
+              <button className={buildMode === 'settlement' ? 'sel' : ''} disabled={!canAffordSettlement} onClick={() => setBuildMode('settlement')}>Settlement (🧱🌲🐑🌾)</button>
+              <button className={buildMode === 'city' ? 'sel' : ''} disabled={!canAffordCity} onClick={() => setBuildMode('city')}>City (🌾🌾⛰️⛰️⛰️)</button>
               {buildMode && <button className="link-button" onClick={() => setBuildMode(null)}>Cancel</button>}
               <button onClick={() => onAction({ type: 'endTurn' })}>End Turn ▶</button>
             </>
@@ -201,12 +264,17 @@ export function GameView({ view, logs, onAction, onLeave }: GameViewProps) {
               cards={me.devCards}
               turnNumber={game.turnNumber}
               canPlay={canPlayDev}
-              canBuy={game.phase === 'main'}
+              canBuy={game.phase === 'main' && canAffordDev}
               onBuy={() => onAction({ type: 'buyDevCard' })}
               onPlay={playDevCard}
             />
           </div>
         )}
+
+        <div className="info-row">
+          <Inventory board={game.board} playerId={youId} />
+          <CostCard />
+        </div>
 
         <h3>Your hand</h3>
         <ResourceHand resources={me.resources} />
@@ -222,25 +290,24 @@ export function GameView({ view, logs, onAction, onLeave }: GameViewProps) {
             return (
               <li key={p.id} className={p.id === current?.id ? 'active' : ''}>
                 <span className="swatch" style={{ background: p.color }} />
-                {p.name}
+                <span className="pname" style={{ color: p.color }}>{p.name}</span>
                 {isYou && <span className="tag">you</span>}
-                {game.longestRoadOwner === p.id && <span className="tag">🛣️</span>}
-                {game.largestArmyOwner === p.id && <span className="tag">⚔️</span>}
-                <span className="muted"> · {p.publicVictoryPoints} VP · {handCount}🃏 · {devCount} dev</span>
+                {game.longestRoadOwner === p.id && <span className="tag" title="Longest Road">🛣️</span>}
+                {game.largestArmyOwner === p.id && <span className="tag" title="Largest Army">⚔️</span>}
+                <span className="pstats muted">{p.publicVictoryPoints}vp · {handCount}🃏 · {devCount}d</span>
               </li>
             );
           })}
         </ul>
 
         <h3>Log</h3>
-        <div className="log">
-          {logs.length === 0 ? <p className="muted">No events yet.</p> : logs.map((l, i) => <p key={i}>{l}</p>)}
+        <div className="log" ref={logRef}>
+          {logs.length === 0 ? <p className="muted">No events yet.</p> : logs.map((l, i) => <p key={i}>{colorizeLog(l, game.players)}</p>)}
         </div>
 
         <button className="link-button" onClick={onLeave}>Leave game</button>
       </aside>
 
-      {/* Discard modal (forced) */}
       {mustDiscard && (
         <ResourceSelect
           title={`Discard ${Math.floor(handTotal / 2)} cards`}
@@ -251,7 +318,6 @@ export function GameView({ view, logs, onAction, onLeave }: GameViewProps) {
         />
       )}
 
-      {/* Steal target picker */}
       {robberTile && (
         <div className="modal-backdrop">
           <div className="modal">
@@ -270,7 +336,6 @@ export function GameView({ view, logs, onAction, onLeave }: GameViewProps) {
         </div>
       )}
 
-      {/* Year of Plenty */}
       {modal === 'yearOfPlenty' && (
         <ResourceSelect
           title="Year of Plenty — take 2"
@@ -280,7 +345,6 @@ export function GameView({ view, logs, onAction, onLeave }: GameViewProps) {
         />
       )}
 
-      {/* Monopoly */}
       {modal === 'monopoly' && (
         <ResourceSelect
           title="Monopoly — choose 1"

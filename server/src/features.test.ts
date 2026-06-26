@@ -111,6 +111,28 @@ describe('development cards', () => {
   });
 });
 
+describe('color selection (lobby)', () => {
+  it('rejects a taken color and accepts a free one', () => {
+    const host = createPlayer('A', 'Alice', true, 0); // red (index 0)
+    const game = createInitialGame('TEST', host);
+    game.players.push(createPlayer('B', 'Bob', false, 1)); // blue (index 1)
+
+    // Bob cannot take Alice's color.
+    expect(applyAction(game, 'B', { type: 'setColor', color: 'red' }).ok).toBe(false);
+    // Bob can take a free color.
+    expect(applyAction(game, 'B', { type: 'setColor', color: 'orange' }).ok).toBe(true);
+    expect(game.players.find((p) => p.id === 'B')!.color).toBe('orange');
+  });
+
+  it('cannot change color once the game has started', () => {
+    const host = createPlayer('A', 'Alice', true, 0);
+    const game = createInitialGame('TEST', host);
+    game.players.push(createPlayer('B', 'Bob', false, 1));
+    applyAction(game, 'A', { type: 'startGame' });
+    expect(applyAction(game, 'A', { type: 'setColor', color: 'white' }).ok).toBe(false);
+  });
+});
+
 describe('robber discard', () => {
   it('forces discarding half and rejects the wrong count', () => {
     const game = startedGame();

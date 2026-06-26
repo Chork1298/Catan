@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   canBuildRoadAt,
   canPlaceSetupRoad,
@@ -82,7 +82,9 @@ describe('full game engine flow', () => {
     const game = newTwoPlayerGame();
     applyAction(game, 'A', { type: 'startGame' });
     autoSetup(game);
+    const spy = vi.spyOn(Math, 'random').mockReturnValue(0); // dice = 1+1 = 2 (never a 7)
     const roll = applyAction(game, 'A', { type: 'rollDice' });
+    spy.mockRestore();
     expect(roll.ok).toBe(true);
     expect(game.phase).toBe('main');
 
@@ -100,7 +102,9 @@ describe('full game engine flow', () => {
     const game = newTwoPlayerGame();
     applyAction(game, 'A', { type: 'startGame' });
     autoSetup(game);
+    const spy = vi.spyOn(Math, 'random').mockReturnValue(0); // never a 7
     applyAction(game, 'A', { type: 'rollDice' });
+    spy.mockRestore();
     const end = applyAction(game, 'A', { type: 'endTurn' });
     expect(end.ok).toBe(true);
     expect(game.currentPlayerIndex).toBe(1);
