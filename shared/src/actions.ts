@@ -9,6 +9,7 @@ export type Action =
   | { type: 'setColor'; color: PlayerColor }
   | { type: 'setTargetPoints'; points: number }
   | { type: 'setMapSize'; radius: number }
+  | { type: 'setTurnTimer'; seconds: number }
   | { type: 'startGame' }
   // setup phase
   | { type: 'placeSetupSettlement'; vertexId: string }
@@ -38,6 +39,7 @@ export type Action =
   | { type: 'declareWar'; targetVertexId: string }
   | { type: 'respondToWar'; response: 'fight' | 'retreat' | 'peace'; tribute?: ResourceBag }
   | { type: 'respondToPeace'; accept: boolean }
+  | { type: 'claimRoad'; edgeId: string }
   // roleplay naming
   | { type: 'nameBuilding'; vertexId: string; name: string }
   | { type: 'renameSoldier'; vertexId: string; soldierId: string; name: string }

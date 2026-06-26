@@ -26,6 +26,7 @@ export function App() {
           onSetColor={(color) => sendAction({ type: 'setColor', color })}
           onSetTarget={(points) => sendAction({ type: 'setTargetPoints', points })}
           onSetMapSize={(radius) => sendAction({ type: 'setMapSize', radius })}
+          onSetTurnTimer={(seconds) => sendAction({ type: 'setTurnTimer', seconds })}
           onStart={() => sendAction({ type: 'startGame' })}
           onLeave={leave}
         />

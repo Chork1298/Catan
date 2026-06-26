@@ -143,6 +143,10 @@ export interface Player {
   playedKnights: number;
   /** Public victory points (from settlements/cities/longest road/largest army). */
   publicVictoryPoints: number;
+  /** Knocked out (lost all buildings). */
+  eliminated?: boolean;
+  /** Players this player has captured a building from (can claim their roads cheap). */
+  conqueredFrom?: string[];
 }
 
 // ----- Game phase / flow -----
@@ -169,6 +173,8 @@ export interface PendingWar {
   defenderId: string;
   /** The enemy building (vertex) under attack. */
   targetVertexId: string;
+  /** The attacker's own building the assault is launched from (per-settlement combat). */
+  stagingVertexId: string;
   /** Rallied strengths computed at declaration (for display). */
   attackerArmy: number;
   defenderArmy: number;
@@ -229,8 +235,12 @@ export interface GameState {
   winnerId: string | null;
   /** Victory points required to win (host-adjustable in the lobby). */
   targetPoints: number;
-  /** Epoch ms when the current player's turn auto-ends, or null if no timer. */
+  /** Epoch ms when the current player's turn auto-ends, or null (paused/none). */
   turnEndsAt: number | null;
+  /** Host-set seconds per turn (10–180). */
+  turnSeconds: number;
+  /** Epoch ms when the active war's responder auto-resolves, or null. */
+  warEndsAt: number | null;
   /** Board radius the host chose in the lobby (2=small … 5=huge). */
   mapRadius: number;
 }

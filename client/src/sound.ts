@@ -32,3 +32,63 @@ export function playDing(): void {
     // Audio is best-effort; never let it break the game.
   }
 }
+
+// ----- War "heavy metal" synth fallback (used when no bundled track is present) -----
+
+let riffTimer: ReturnType<typeof setInterval> | null = null;
+let distortion: WaveShaperNode | null = null;
+
+function makeDistortion(c: AudioContext): WaveShaperNode {
+  const ws = c.createWaveShaper();
+  const n = 256;
+  const curve = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const x = (i * 2) / n - 1;
+    curve[i] = ((Math.PI + 12) * x) / (Math.PI + 12 * Math.abs(x)); // soft-clip overdrive
+  }
+  ws.curve = curve;
+  ws.oversample = '4x';
+  return ws;
+}
+
+/** Start a looping, gritty power-chord riff (palm-muted-ish driving 8ths). */
+export function startWarRiff(): void {
+  try {
+    const c = getCtx();
+    if (!c || riffTimer) return;
+    if (c.state === 'suspended') void c.resume();
+    distortion = makeDistortion(c);
+    distortion.connect(c.destination);
+    const roots = [82.41, 82.41, 110, 98]; // E2 E2 A2 G2 — a chuggy progression
+    let step = 0;
+    const hit = () => {
+      const c2 = getCtx();
+      if (!c2 || !distortion) return;
+      const now = c2.currentTime;
+      const root = roots[step % roots.length];
+      step++;
+      for (const f of [root, root * 1.5]) { // root + fifth = power chord
+        const o = c2.createOscillator();
+        const g = c2.createGain();
+        o.type = 'sawtooth';
+        o.frequency.value = f;
+        g.gain.setValueAtTime(0.0001, now);
+        g.gain.exponentialRampToValueAtTime(0.12, now + 0.01);
+        g.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
+        o.connect(g);
+        g.connect(distortion);
+        o.start(now);
+        o.stop(now + 0.24);
+      }
+    };
+    hit();
+    riffTimer = setInterval(hit, 260);
+  } catch {
+    /* best-effort */
+  }
+}
+
+export function stopWarRiff(): void {
+  if (riffTimer) { clearInterval(riffTimer); riffTimer = null; }
+  if (distortion) { try { distortion.disconnect(); } catch { /* ignore */ } distortion = null; }
+}

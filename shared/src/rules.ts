@@ -260,22 +260,60 @@ export function ralliedArmy(board: Board, playerId: string, start: string): numb
   return n;
 }
 
-/** The attacker-side endpoint of a road they've built up to the target, or null. */
-export function attackRoadEndpoint(board: Board, attackerId: string, targetVertexId: string): string | null {
-  const target = board.vertices[targetVertexId];
-  if (!target) return null;
-  for (const eId of target.edgeIds) {
-    const e = board.edges[eId];
-    if (e.road === attackerId) return e.vertexIds[0] === targetVertexId ? e.vertexIds[1] : e.vertexIds[0];
+/** Nearest building owned by `ownerId`, reached from `start` via their roads (BFS). */
+export function nearestOwnedBuilding(board: Board, ownerId: string, start: string): string | null {
+  const visited = new Set<string>([start]);
+  const queue = [start];
+  while (queue.length) {
+    const u = queue.shift()!;
+    const b = board.vertices[u].building;
+    if (b?.owner === ownerId) return u; // BFS → nearest
+    if (u !== start && b && b.owner !== ownerId) continue; // don't path through enemy holdings
+    for (const eId of board.vertices[u].edgeIds) {
+      const e = board.edges[eId];
+      if (e.road !== ownerId) continue;
+      const w = e.vertexIds[0] === u ? e.vertexIds[1] : e.vertexIds[0];
+      if (!visited.has(w)) { visited.add(w); queue.push(w); }
+    }
   }
   return null;
 }
 
+/**
+ * Enemy buildings this player can attack, mapped to the staging building the
+ * assault launches from. A "contact" is any vertex where the attacker has a road
+ * AND an enemy has a road or building; the target is the enemy building nearest
+ * that contact, the staging is the attacker building nearest it.
+ */
+export function attackTargets(board: Board, attackerId: string): Map<string, string> {
+  const targets = new Map<string, string>(); // targetVertexId -> stagingVertexId
+  for (const e of Object.values(board.edges)) {
+    if (e.road !== attackerId) continue;
+    for (const c of e.vertexIds) {
+      const enemies = new Set<string>();
+      const cb = board.vertices[c].building;
+      if (cb && cb.owner !== attackerId) enemies.add(cb.owner);
+      for (const eId of board.vertices[c].edgeIds) {
+        const ce = board.edges[eId];
+        if (ce.road && ce.road !== attackerId) enemies.add(ce.road);
+      }
+      if (enemies.size === 0) continue;
+      const staging = nearestOwnedBuilding(board, attackerId, c);
+      if (!staging) continue;
+      for (const enemy of enemies) {
+        const target = nearestOwnedBuilding(board, enemy, c);
+        if (!target) continue;
+        const prev = targets.get(target);
+        if (!prev || garrisonAt(board, staging) > garrisonAt(board, prev)) targets.set(target, staging);
+      }
+    }
+  }
+  return targets;
+}
+
 /** Can this player declare war on the building at this vertex? */
 export function canDeclareWarOn(board: Board, attackerId: string, targetVertexId: string): boolean {
-  const target = board.vertices[targetVertexId];
-  if (!target?.building || target.building.owner === attackerId) return false;
-  return attackRoadEndpoint(board, attackerId, targetVertexId) !== null;
+  return attackTargets(board, attackerId).has(targetVertexId);
 }
 
 /** Are two of a player's buildings in the same connected cluster (for transport)? */

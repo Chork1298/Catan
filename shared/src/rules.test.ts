@@ -29,7 +29,8 @@ function makeGame(): GameState {
     devDeck: [], currentPlayerIndex: 0, turnNumber: 1, lastRoll: null,
     hasRolledThisTurn: true, hasPlayedDevCardThisTurn: false, setupQueueIndex: 0,
     setupStep: 'settlement', lastSetupVertex: null, pendingTrade: null, pendingWar: null, mustDiscard: [],
-    longestRoadOwner: null, largestArmyOwner: null, winnerId: null, targetPoints: 10, turnEndsAt: null, mapRadius: 2,
+    longestRoadOwner: null, largestArmyOwner: null, winnerId: null, targetPoints: 10, turnEndsAt: null,
+    turnSeconds: 90, warEndsAt: null, mapRadius: 2,
   };
 }
 
@@ -175,15 +176,14 @@ describe('war connectivity', () => {
     expect(ralliedArmy(board, 'A', chain[0])).toBe(2); // only the start end remains
   });
 
-  it('allows declaring war only on a road-adjacent enemy building', () => {
+  it('lets you attack a road-reachable enemy building from a staging settlement', () => {
     const board = generateBoard({ seed: 8 });
     const edge = Object.values(board.edges)[0];
     const [u, w] = edge.vertexIds;
     board.edges[edge.id].road = 'A';
-    board.vertices[w].building = { type: 'settlement', owner: 'B', garrison: garr(1) };
-    expect(canDeclareWarOn(board, 'A', w)).toBe(true); // A's road reaches B's settlement
-    expect(canDeclareWarOn(board, 'A', u)).toBe(false); // empty vertex, no enemy building
-    board.vertices[u].building = { type: 'settlement', owner: 'A' };
+    board.vertices[u].building = { type: 'settlement', owner: 'A', garrison: garr(1) }; // staging
+    board.vertices[w].building = { type: 'settlement', owner: 'B', garrison: garr(1) }; // target
+    expect(canDeclareWarOn(board, 'A', w)).toBe(true); // A's road links its settlement to B's
     expect(canDeclareWarOn(board, 'A', u)).toBe(false); // can't attack your own
   });
 });

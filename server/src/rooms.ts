@@ -13,9 +13,14 @@ interface Room {
   tokens: Map<string, string>;
   /** playerId -> current socket id (null if disconnected). */
   sockets: Map<string, string | null>;
-  /** Active turn-timeout handle and the turn it's keyed to (managed by socket layer). */
+  /** Timer handles + bookkeeping (managed by the socket layer). */
   turnTimer: ReturnType<typeof setTimeout> | null;
+  rollTimer: ReturnType<typeof setTimeout> | null;
+  warTimer: ReturnType<typeof setTimeout> | null;
   turnKey: string | null;
+  /** Remaining turn time stashed while paused for a war. */
+  turnRemainingMs: number | null;
+  warActive: boolean;
 }
 
 const ROOM_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no ambiguous chars
@@ -48,7 +53,11 @@ export function createRoom(name: string, socketId: string): JoinResult {
     tokens: new Map([[playerId, randomToken()]]),
     sockets: new Map([[playerId, socketId]]),
     turnTimer: null,
+    rollTimer: null,
+    warTimer: null,
     turnKey: null,
+    turnRemainingMs: null,
+    warActive: false,
   };
   rooms.set(code, room);
   return { roomCode: code, playerId, token: room.tokens.get(playerId)! };

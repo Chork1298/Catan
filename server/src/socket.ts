@@ -4,6 +4,7 @@
 
 import type { Server, Socket } from 'socket.io';
 import type { ClientToServerEvents, ServerToClientEvents } from '@catan/shared';
+import { garrisonAt } from '@catan/shared';
 import { applyAction, forceTurnTimeout, toPlayerView } from './game.js';
 import {
   createRoom,
@@ -45,41 +46,135 @@ function sendPrivateLogs(io: GameServer, room: Room, privateLogs: Record<string,
   }
 }
 
-const TURN_MS = 90_000;
+const ROLL_MS = 5_000; // auto-roll nudge at the start of a turn
+const WAR_MS = 30_000; // war responder deadline
 
-/** Identifies the current turn; changes when the active player/turn changes. */
+/** Actions that buy the active player +15 seconds. */
+const EXTEND_ACTIONS = new Set(['buildRoad', 'buildSettlement', 'buildCity', 'bankTrade', 'finalizeTrade']);
+
+function clear(room: Room, which: 'turnTimer' | 'rollTimer' | 'warTimer'): void {
+  if (room[which]) clearTimeout(room[which]!);
+  room[which] = null;
+}
+
 function turnKeyOf(room: Room): string | null {
   const g = room.game;
   if (g.phase === 'lobby' || g.phase === 'ended') return null;
   return `${g.turnNumber}:${g.currentPlayerIndex}`;
 }
 
-/** Arm/clear the 90s turn timer when the turn changes. Sets game.turnEndsAt so
- *  clients can show a countdown. Must run BEFORE broadcasting state. */
-function syncTurnTimer(io: GameServer, room: Room): void {
-  const key = turnKeyOf(room);
-  if (key === room.turnKey) return; // same turn — let the running timer continue
-  if (room.turnTimer) clearTimeout(room.turnTimer);
-  room.turnTimer = null;
-  room.turnKey = key;
-  if (key === null) {
-    room.game.turnEndsAt = null;
-    return;
-  }
-  room.game.turnEndsAt = Date.now() + TURN_MS;
-  room.turnTimer = setTimeout(() => onTurnTimeout(io, room), TURN_MS);
+function setTurnDeadline(io: GameServer, room: Room, ms: number): void {
+  clear(room, 'turnTimer');
+  room.game.turnEndsAt = Date.now() + ms;
+  room.turnTimer = setTimeout(() => onTurnTimeout(io, room), ms);
 }
 
-/** Fired when a turn runs out of time: auto-resolve and broadcast. */
-function onTurnTimeout(io: GameServer, room: Room): void {
-  room.turnTimer = null;
-  if (!getRoom(room.code)) return; // room gone
-  const result = forceTurnTimeout(room.game);
-  if (!result.ok) return;
+/** Arm a 5s auto-roll while the current player hasn't rolled; else clear it. */
+function armRollTimer(io: GameServer, room: Room): void {
+  const g = room.game;
+  if (g.phase === 'rollDice' && !g.hasRolledThisTurn && !g.pendingWar) {
+    if (!room.rollTimer) room.rollTimer = setTimeout(() => onRollTimeout(io, room), ROLL_MS);
+  } else {
+    clear(room, 'rollTimer');
+  }
+}
+
+/**
+ * Single source of timer truth. Manages the turn timer, the 5s roll nudge, and
+ * the war timer (which pauses the turn timer). Must run BEFORE broadcasting state.
+ */
+function syncTimers(io: GameServer, room: Room): void {
+  const g = room.game;
+  if (g.phase === 'lobby' || g.phase === 'ended') {
+    clear(room, 'turnTimer'); clear(room, 'rollTimer'); clear(room, 'warTimer');
+    g.turnEndsAt = null; g.warEndsAt = null;
+    room.turnKey = turnKeyOf(room); room.warActive = false; room.turnRemainingMs = null;
+    return;
+  }
+
+  const key = turnKeyOf(room);
+  if (key !== room.turnKey) {
+    // New turn: fresh turn timer + roll nudge; clear any war leftovers.
+    room.turnKey = key;
+    clear(room, 'warTimer'); g.warEndsAt = null; room.warActive = false; room.turnRemainingMs = null;
+    setTurnDeadline(io, room, g.turnSeconds * 1000);
+    armRollTimer(io, room);
+    return;
+  }
+
+  if (g.pendingWar && !room.warActive) {
+    // War just started → pause the turn timer, start the war timer.
+    room.warActive = true;
+    room.turnRemainingMs = Math.max(1000, (g.turnEndsAt ?? Date.now()) - Date.now());
+    g.turnEndsAt = null;
+    clear(room, 'turnTimer'); clear(room, 'rollTimer');
+    g.warEndsAt = Date.now() + WAR_MS;
+    room.warTimer = setTimeout(() => onWarTimeout(io, room), WAR_MS);
+    return;
+  }
+
+  if (!g.pendingWar && room.warActive) {
+    // War just ended → resume the turn timer where it left off.
+    room.warActive = false;
+    clear(room, 'warTimer'); g.warEndsAt = null;
+    setTurnDeadline(io, room, room.turnRemainingMs ?? g.turnSeconds * 1000);
+    room.turnRemainingMs = null;
+    armRollTimer(io, room);
+    return;
+  }
+
+  if (!g.pendingWar) armRollTimer(io, room);
+}
+
+/** Add time to the active turn (e.g. +15s after a build/trade). */
+function extendTurn(io: GameServer, room: Room, ms: number): void {
+  const g = room.game;
+  if (room.warActive || g.turnEndsAt == null) return;
+  const remaining = Math.max(0, g.turnEndsAt - Date.now()) + ms;
+  setTurnDeadline(io, room, remaining);
+}
+
+function broadcastResult(io: GameServer, room: Room, result: ReturnType<typeof forceTurnTimeout>): void {
   for (const line of result.logs) broadcastLog(io, room, line);
   if (result.privateLogs) sendPrivateLogs(io, room, result.privateLogs);
   for (const msg of result.announcements ?? []) broadcastAnnounce(io, room, msg);
-  syncTurnTimer(io, room); // re-arm for the next player
+}
+
+function onTurnTimeout(io: GameServer, room: Room): void {
+  room.turnTimer = null;
+  if (!getRoom(room.code)) return;
+  const result = forceTurnTimeout(room.game);
+  if (result.ok) broadcastResult(io, room, result);
+  syncTimers(io, room);
+  broadcastState(io, room);
+}
+
+function onRollTimeout(io: GameServer, room: Room): void {
+  room.rollTimer = null;
+  if (!getRoom(room.code)) return;
+  const g = room.game;
+  if (g.phase !== 'rollDice' || g.hasRolledThisTurn) return;
+  const cur = g.players[g.currentPlayerIndex];
+  const result = applyAction(g, cur.id, { type: 'rollDice' });
+  if (result.ok) broadcastResult(io, room, result);
+  syncTimers(io, room);
+  broadcastState(io, room);
+}
+
+function onWarTimeout(io: GameServer, room: Room): void {
+  room.warTimer = null;
+  if (!getRoom(room.code)) return;
+  const g = room.game;
+  if (!g.pendingWar) { syncTimers(io, room); return; }
+  // Auto-resolve: reject any peace, then the defender fights (or retreats if undefended).
+  if (g.pendingWar.awaiting === 'attacker')
+    broadcastResult(io, room, applyAction(g, g.pendingWar.attackerId, { type: 'respondToPeace', accept: false }));
+  if (g.pendingWar?.awaiting === 'defender') {
+    const w = g.pendingWar;
+    const resp = garrisonAt(g.board, w.targetVertexId) > 0 ? 'fight' : 'retreat';
+    broadcastResult(io, room, applyAction(g, w.defenderId, { type: 'respondToWar', response: resp }));
+  }
+  syncTimers(io, room);
   broadcastState(io, room);
 }
 
@@ -135,10 +230,9 @@ export function registerSocketHandlers(io: GameServer): void {
         return;
       }
       ack({ ok: true });
-      for (const line of result.logs) broadcastLog(io, room, line);
-      if (result.privateLogs) sendPrivateLogs(io, room, result.privateLogs);
-      for (const msg of result.announcements ?? []) broadcastAnnounce(io, room, msg);
-      syncTurnTimer(io, room); // update turnEndsAt + (re)arm before broadcasting
+      broadcastResult(io, room, result);
+      syncTimers(io, room);
+      if (EXTEND_ACTIONS.has(action.type)) extendTurn(io, room, 15_000); // +15s for building/trading
       broadcastState(io, room);
     });
 
@@ -148,9 +242,10 @@ export function registerSocketHandlers(io: GameServer): void {
       if (getRoom(found.room.code)) {
         broadcastLog(io, found.room, `A player disconnected.`);
         broadcastState(io, found.room);
-      } else if (found.room.turnTimer) {
-        clearTimeout(found.room.turnTimer); // room was cleaned up; stop its timer
-        found.room.turnTimer = null;
+      } else {
+        clear(found.room, 'turnTimer'); // room was cleaned up; stop its timers
+        clear(found.room, 'rollTimer');
+        clear(found.room, 'warTimer');
       }
     });
   });

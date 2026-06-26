@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   armyCap,
+  attackTargets,
   canAfford,
   canBuildCityAt,
   canBuildRoadAt,
   canBuildSettlementAt,
-  canDeclareWarOn,
   canPlaceSetupRoad,
   canPlaceSetupSettlement,
   countBuildings,
@@ -39,7 +39,7 @@ import { DiceRoll } from './DiceRoll.js';
 import { DiceOverlay } from './DiceOverlay.js';
 import { TurnBanner } from './TurnBanner.js';
 import { BuildingInspector } from './BuildingInspector.js';
-import { playDing } from '../sound.js';
+import { playDing, startWarRiff, stopWarRiff } from '../sound.js';
 
 export interface GameViewProps {
   view: PlayerView;
@@ -49,7 +49,7 @@ export interface GameViewProps {
   onLeave: () => void;
 }
 
-type BuildMode = 'road' | 'settlement' | 'city' | 'train' | 'move' | 'attack' | 'rename' | null;
+type BuildMode = 'road' | 'settlement' | 'city' | 'train' | 'move' | 'attack' | 'rename' | 'claimroad' | null;
 
 function bagToList(bag: ResourceBag): ResourceType[] {
   const out: ResourceType[] = [];
@@ -99,6 +99,9 @@ export function GameView({ view, logs, announcements, onAction, onLeave }: GameV
   const [moveCount, setMoveCount] = useState(1);
   const [inspectVertex, setInspectVertex] = useState<string | null>(null); // building inspector (naming)
   const [peaceTribute, setPeaceTribute] = useState<ResourceBag | null>(null); // defender's peace builder
+  const [muted, setMuted] = useState(false);
+  const warAudioRef = useRef<HTMLAudioElement>(null);
+  const audioFailed = useRef(false);
 
   const me = game.players.find((p) => p.id === youId)!;
   const current = game.players[game.currentPlayerIndex];
@@ -149,13 +152,28 @@ export function GameView({ view, logs, announcements, onAction, onLeave }: GameV
     const i = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(i);
   }, []);
-  const secsLeft = game.turnEndsAt ? Math.max(0, Math.ceil((game.turnEndsAt - now) / 1000)) : null;
+  const warSecs = game.warEndsAt ? Math.max(0, Math.ceil((game.warEndsAt - now) / 1000)) : null;
+  const turnSecs = game.turnEndsAt ? Math.max(0, Math.ceil((game.turnEndsAt - now) / 1000)) : null;
 
   // Auto-scroll the log to the newest message.
   const logRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
+
+  // Heavy metal during war: play the bundled loop, or a synth riff if absent.
+  useEffect(() => {
+    const atWar = !!game.pendingWar;
+    const a = warAudioRef.current;
+    if (atWar && !muted) {
+      if (a && !audioFailed.current) a.play().catch(() => { audioFailed.current = true; startWarRiff(); });
+      else startWarRiff();
+    } else {
+      if (a) a.pause();
+      stopWarRiff();
+    }
+    return () => stopWarRiff();
+  }, [game.pendingWar, muted]);
 
   const mode: 'setup-settlement' | 'setup-road' | 'devroad' | BuildMode = inSetup
     ? game.setupStep === 'settlement' ? 'setup-settlement' : 'setup-road'
@@ -196,9 +214,19 @@ export function GameView({ view, logs, announcements, onAction, onLeave }: GameV
         verts.add(moveSource);
       }
     } else if (mode === 'attack') {
-      for (const v of Object.values(b.vertices)) if (canDeclareWarOn(b, youId, v.id)) verts.add(v.id);
+      for (const t of attackTargets(b, youId).keys()) verts.add(t);
     } else if (mode === 'rename') {
       for (const v of Object.values(b.vertices)) if (v.building?.owner === youId) verts.add(v.id);
+    } else if (mode === 'claimroad') {
+      const conquered = new Set(me.conqueredFrom ?? []);
+      for (const e of Object.values(b.edges)) {
+        if (!e.road || !conquered.has(e.road)) continue;
+        const touches = e.vertexIds.some((v) =>
+          b.vertices[v].building?.owner === youId ||
+          b.vertices[v].edgeIds.some((id) => id !== e.id && b.edges[id].road === youId)
+        );
+        if (touches) edges.add(e.id);
+      }
     }
     return { highlightVertices: verts, highlightEdges: edges };
   }, [game.board, game.lastSetupVertex, mode, devRoad, moveSource, isMyTurn, youId, canTrain]);
@@ -236,6 +264,7 @@ export function GameView({ view, logs, announcements, onAction, onLeave }: GameV
     if (!isMyTurn || !highlightEdges.has(eId)) return;
     if (mode === 'setup-road') onAction({ type: 'placeSetupRoad', edgeId: eId });
     else if (mode === 'road') { onAction({ type: 'buildRoad', edgeId: eId }); setBuildMode(null); }
+    else if (mode === 'claimroad') onAction({ type: 'claimRoad', edgeId: eId }); // stay in mode
     else if (mode === 'devroad' && devRoad) {
       const next = devRoad.includes(eId) ? devRoad.filter((x) => x !== eId) : [...devRoad, eId];
       setDevRoad(next.slice(0, 2));
@@ -286,6 +315,7 @@ export function GameView({ view, logs, announcements, onAction, onLeave }: GameV
     if (mode === 'move') return moveSource ? 'Click a connected building to move the garrison there.' : 'Click a building with soldiers to move.';
     if (mode === 'attack') return 'Click an enemy building your road reaches to attack it.';
     if (mode === 'rename') return 'Click your building to name it and its soldiers.';
+    if (mode === 'claimroad') return 'Click a conquered enemy road to claim it for 1 🧱.';
     if (game.phase === 'rollDice') return 'Roll the dice (or play a dev card first).';
     if (buildMode) return `Click a highlighted spot to build a ${buildMode}.`;
     return 'Build, train, trade, attack, or end your turn.';
@@ -297,6 +327,7 @@ export function GameView({ view, logs, announcements, onAction, onLeave }: GameV
 
   return (
     <div className="game-grid">
+      <audio ref={warAudioRef} src="/war-metal.ogg" loop preload="none" onError={() => { audioFailed.current = true; }} />
       <TurnBanner show={showTurnBanner && isMyTurn} />
       {diceOverlay && <DiceOverlay key={diceOverlay.key} die1={diceOverlay.die1} die2={diceOverlay.die2} onDone={() => setDiceOverlay(null)} />}
       <div className="announce-stack">
@@ -308,7 +339,12 @@ export function GameView({ view, logs, announcements, onAction, onLeave }: GameV
         <span className="muted">Turn {game.turnNumber}</span>
         <span className="muted">Win at {game.targetPoints}</span>
         {game.lastRoll && <DiceRoll die1={game.lastRoll.die1} die2={game.lastRoll.die2} />}
-        {secsLeft !== null && <span className={secsLeft <= 15 ? 'turn-clock low' : 'turn-clock'}>⏱ {secsLeft}s</span>}
+        {warSecs !== null ? (
+          <span className="turn-clock low">⚔️ {warSecs}s</span>
+        ) : turnSecs !== null ? (
+          <span className={turnSecs <= 15 ? 'turn-clock low' : 'turn-clock'}>⏱ {turnSecs}s</span>
+        ) : null}
+        <button className="link-button" onClick={() => setMuted((m) => !m)} title="Toggle war music">{muted ? '🔇' : '🔊'}</button>
         <button className="link-button" onClick={onLeave}>Leave</button>
       </header>
 
@@ -418,6 +454,9 @@ export function GameView({ view, logs, announcements, onAction, onLeave }: GameV
               <button className={buildMode === 'train' ? 'sel' : ''} disabled={!canTrain} onClick={() => chooseMode('train')} title="Train a soldier (1🌾 + 1⛰️)">Train ⚔️</button>
               <button className={buildMode === 'move' ? 'sel' : ''} disabled={myArmy === 0} onClick={() => chooseMode('move')}>Move troops</button>
               <button className={buildMode === 'attack' ? 'sel' : ''} disabled={myArmy === 0} onClick={() => chooseMode('attack')}>Attack</button>
+              {!!me.conqueredFrom?.length && (
+                <button className={buildMode === 'claimroad' ? 'sel' : ''} onClick={() => chooseMode('claimroad')} title="Claim a conquered nation's roads (1 brick each)">Claim roads</button>
+              )}
               <button className={buildMode === 'rename' ? 'sel' : ''} onClick={() => chooseMode('rename')} title="Name your settlements & soldiers">Manage 🏷️</button>
               {buildMode && <button className="link-button" onClick={() => chooseMode(null)}>Done</button>}
               <button onClick={() => onAction({ type: 'endTurn' })}>End Turn ▶</button>
@@ -481,7 +520,13 @@ export function GameView({ view, logs, announcements, onAction, onLeave }: GameV
             </p>
             {peaceTribute === null ? (
               <div className="modal-actions">
-                <button onClick={() => onAction({ type: 'respondToWar', response: 'fight' })}>Fight</button>
+                <button
+                  disabled={garrisonAt(game.board, game.pendingWar.targetVertexId) === 0}
+                  title={garrisonAt(game.board, game.pendingWar.targetVertexId) === 0 ? 'No troops stationed here to fight' : ''}
+                  onClick={() => onAction({ type: 'respondToWar', response: 'fight' })}
+                >
+                  Fight
+                </button>
                 <button onClick={() => onAction({ type: 'respondToWar', response: 'retreat' })}>Retreat</button>
                 <button className="mini" onClick={() => setPeaceTribute(emptyBag())}>Offer peace…</button>
               </div>

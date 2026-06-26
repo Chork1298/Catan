@@ -76,6 +76,9 @@ export const ARMY_PER_CITY = 2;
 export const LOSER_CASUALTIES = 2;
 export const WINNER_CASUALTIES = 1;
 
+/** Cost to claim a defeated player's existing road after a conquest. */
+export const CLAIM_ROAD_COST = { brick: 1, wood: 0, sheep: 0, wheat: 0, ore: 0 } satisfies ResourceBag;
+
 /** Funny default names for freshly trained soldiers (rename them if you like). */
 export const SOLDIER_NAMES = [
   'Sir Reginald', 'Greg the Bold', 'Captain Carrot', 'Brave Sir Robin', 'Big Tony',

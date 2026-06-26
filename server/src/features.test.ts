@@ -241,14 +241,22 @@ describe('war', () => {
   });
 
   it('attacker wins a battle and captures the building', () => {
-    const { game, targetVertex } = warScenario(3, 0);
+    const { game, targetVertex } = warScenario(3, 1); // defender must have troops to fight
     applyAction(game, 'A', { type: 'declareWar', targetVertexId: targetVertex });
-    const spy = vi.spyOn(Math, 'random').mockReturnValue(0); // both roll 1
+    const spy = vi.spyOn(Math, 'random').mockReturnValue(0); // both roll 1: 3+1 vs 1+1+1
     const res = applyAction(game, 'B', { type: 'respondToWar', response: 'fight' });
     spy.mockRestore();
     expect(res.ok).toBe(true);
     expect(game.board.vertices[targetVertex].building!.owner).toBe('A'); // captured
     expect(game.pendingWar).toBeNull();
+  });
+
+  it('an undefended settlement cannot fight (must retreat / lose it)', () => {
+    const { game, targetVertex } = warScenario(2, 0); // defender has no troops there
+    applyAction(game, 'A', { type: 'declareWar', targetVertexId: targetVertex });
+    expect(applyAction(game, 'B', { type: 'respondToWar', response: 'fight' }).ok).toBe(false);
+    expect(applyAction(game, 'B', { type: 'respondToWar', response: 'retreat' }).ok).toBe(true);
+    expect(game.board.vertices[targetVertex].building!.owner).toBe('A');
   });
 
   it('defender repels a weak attacker', () => {
