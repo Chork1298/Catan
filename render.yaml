@@ -1,0 +1,13 @@
+# Render.com Blueprint — one service that builds the client + server and serves both.
+# Deploy: push to GitHub, then in Render → "New +" → "Blueprint" → pick this repo.
+# Free tier note: the service sleeps after inactivity and cold-starts on the next visit.
+services:
+  - type: web
+    name: hex-strategy-catan
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
