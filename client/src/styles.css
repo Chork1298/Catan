@@ -883,6 +883,21 @@ button.trade-row,
   margin: 0 0.3rem;
 }
 
+/* Music volume control */
+.music-ctrl {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.volume-bar {
+  width: 90px;
+  margin: 0;
+  padding: 0;
+  accent-color: #b00020;
+  cursor: pointer;
+}
+
 /* War music (embedded YouTube player, shown during war) */
 .war-music {
   position: fixed;

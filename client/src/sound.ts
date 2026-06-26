@@ -37,6 +37,11 @@ export function playDing(): void {
 
 let riffTimer: ReturnType<typeof setInterval> | null = null;
 let distortion: WaveShaperNode | null = null;
+let riffVolume = 0.6; // 0–1, controlled by the in-game volume slider
+
+export function setWarVolume(v: number): void {
+  riffVolume = Math.min(1, Math.max(0, v));
+}
 
 function makeDistortion(c: AudioContext): WaveShaperNode {
   const ws = c.createWaveShaper();
@@ -73,7 +78,7 @@ export function startWarRiff(): void {
         o.type = 'sawtooth';
         o.frequency.value = f;
         g.gain.setValueAtTime(0.0001, now);
-        g.gain.exponentialRampToValueAtTime(0.12, now + 0.01);
+        g.gain.exponentialRampToValueAtTime(Math.max(0.0005, 0.22 * riffVolume), now + 0.01);
         g.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
         o.connect(g);
         g.connect(distortion);

@@ -39,7 +39,7 @@ import { DiceRoll } from './DiceRoll.js';
 import { DiceOverlay } from './DiceOverlay.js';
 import { TurnBanner } from './TurnBanner.js';
 import { BuildingInspector } from './BuildingInspector.js';
-import { playDing, startWarRiff, stopWarRiff } from '../sound.js';
+import { playDing, startWarRiff, stopWarRiff, setWarVolume } from '../sound.js';
 
 export interface GameViewProps {
   view: PlayerView;
@@ -100,6 +100,7 @@ export function GameView({ view, logs, announcements, onAction, onLeave }: GameV
   const [inspectVertex, setInspectVertex] = useState<string | null>(null); // building inspector (naming)
   const [peaceTribute, setPeaceTribute] = useState<ResourceBag | null>(null); // defender's peace builder
   const [muted, setMuted] = useState(false);
+  const [volume, setVolume] = useState(0.6);
   const warAudioRef = useRef<HTMLAudioElement>(null);
   const audioFailed = useRef(false);
 
@@ -155,12 +156,19 @@ export function GameView({ view, logs, announcements, onAction, onLeave }: GameV
   const warSecs = game.warEndsAt ? Math.max(0, Math.ceil((game.warEndsAt - now) / 1000)) : null;
   const turnSecs = game.turnEndsAt ? Math.max(0, Math.ceil((game.turnEndsAt - now) / 1000)) : null;
 
+  // Keep the live volume in sync with the slider (mp3 + synth fallback).
+  useEffect(() => {
+    if (warAudioRef.current) warAudioRef.current.volume = volume;
+    setWarVolume(volume);
+  }, [volume]);
+
   // Heavy metal during war: play the bundled mp3, or a synth riff if it's absent
   // (e.g. on the public deploy where the copyrighted track isn't shipped).
   useEffect(() => {
     const atWar = !!game.pendingWar;
     const a = warAudioRef.current;
-    if (atWar && !muted) {
+    if (atWar && !muted && volume > 0) {
+      if (a) { a.volume = volume; }
       if (a && !audioFailed.current) a.play().catch(() => { audioFailed.current = true; startWarRiff(); });
       else startWarRiff();
     } else {
@@ -168,7 +176,7 @@ export function GameView({ view, logs, announcements, onAction, onLeave }: GameV
       stopWarRiff();
     }
     return () => stopWarRiff();
-  }, [game.pendingWar, muted]);
+  }, [game.pendingWar, muted, volume]);
 
   // Auto-scroll the log to the newest message.
   const logRef = useRef<HTMLDivElement>(null);
@@ -346,7 +354,18 @@ export function GameView({ view, logs, announcements, onAction, onLeave }: GameV
         ) : turnSecs !== null ? (
           <span className={turnSecs <= 15 ? 'turn-clock low' : 'turn-clock'}>⏱ {turnSecs}s</span>
         ) : null}
-        <button className="link-button" onClick={() => setMuted((m) => !m)} title="Toggle war music">{muted ? '🔇' : '🔊'}</button>
+        <span className="music-ctrl" title="War music volume">
+          <button className="link-button" onClick={() => setMuted((m) => !m)} title="Mute/unmute">{muted || volume === 0 ? '🔇' : '🔊'}</button>
+          <input
+            type="range"
+            className="volume-bar"
+            min={0}
+            max={1}
+            step={0.05}
+            value={muted ? 0 : volume}
+            onChange={(e) => { const v = Number(e.target.value); setVolume(v); if (v > 0) setMuted(false); }}
+          />
+        </span>
         <button className="link-button" onClick={onLeave}>Leave</button>
       </header>
 
