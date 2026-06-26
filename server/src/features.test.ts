@@ -133,6 +133,68 @@ describe('color selection (lobby)', () => {
   });
 });
 
+describe('player-to-player trading', () => {
+  it('proposes, accepts, and finalizes a swap', () => {
+    const game = startedGame();
+    const [a, b] = game.players;
+    a.resources = { brick: 0, wood: 1, sheep: 0, wheat: 0, ore: 0 };
+    b.resources = { brick: 0, wood: 0, sheep: 0, wheat: 0, ore: 1 };
+
+    const give = { brick: 0, wood: 1, sheep: 0, wheat: 0, ore: 0 };
+    const receive = { brick: 0, wood: 0, sheep: 0, wheat: 0, ore: 1 };
+    expect(applyAction(game, 'A', { type: 'proposeTrade', give, receive }).ok).toBe(true);
+    const tradeId = game.pendingTrade!.id;
+
+    // Proposer can't accept their own; B accepts.
+    expect(applyAction(game, 'A', { type: 'acceptTrade', tradeId }).ok).toBe(false);
+    expect(applyAction(game, 'B', { type: 'acceptTrade', tradeId }).ok).toBe(true);
+
+    expect(applyAction(game, 'A', { type: 'finalizeTrade', tradeId, withPlayerId: 'B' }).ok).toBe(true);
+    expect(a.resources.ore).toBe(1);
+    expect(a.resources.wood).toBe(0);
+    expect(b.resources.wood).toBe(1);
+    expect(b.resources.ore).toBe(0);
+    expect(game.pendingTrade).toBeNull();
+  });
+
+  it('rejects accept when the partner lacks the asked resources', () => {
+    const game = startedGame();
+    game.players[0].resources = { brick: 0, wood: 1, sheep: 0, wheat: 0, ore: 0 };
+    game.players[1].resources = { brick: 0, wood: 0, sheep: 0, wheat: 0, ore: 0 };
+    applyAction(game, 'A', {
+      type: 'proposeTrade',
+      give: { brick: 0, wood: 1, sheep: 0, wheat: 0, ore: 0 },
+      receive: { brick: 0, wood: 0, sheep: 0, wheat: 0, ore: 1 },
+    });
+    expect(applyAction(game, 'B', { type: 'acceptTrade', tradeId: game.pendingTrade!.id }).ok).toBe(false);
+  });
+});
+
+describe('target points to win', () => {
+  it('only the host can set the target, within range', () => {
+    const host = createPlayer('A', 'Alice', true, 0);
+    const game = createInitialGame('TEST', host);
+    game.players.push(createPlayer('B', 'Bob', false, 1));
+    expect(applyAction(game, 'B', { type: 'setTargetPoints', points: 5 }).ok).toBe(false); // not host
+    expect(applyAction(game, 'A', { type: 'setTargetPoints', points: 2 }).ok).toBe(false); // out of range
+    expect(applyAction(game, 'A', { type: 'setTargetPoints', points: 5 }).ok).toBe(true);
+    expect(game.targetPoints).toBe(5);
+  });
+
+  it('win respects the chosen target', () => {
+    const game = startedGame(); // post-setup: each player has 2 settlements (2 VP)
+    game.targetPoints = 3;
+    // Upgrade one of A's settlements to a city -> 1 settlement + 1 city = 3 VP.
+    const aVertex = Object.values(game.board.vertices).find(
+      (v) => v.building?.owner === 'A' && v.building.type === 'settlement'
+    )!;
+    game.board.vertices[aVertex.id].building = { type: 'city', owner: 'A' };
+    applyAction(game, 'A', { type: 'endTurn' }); // triggers score recompute + win check
+    expect(game.winnerId).toBe('A');
+    expect(game.phase).toBe('ended');
+  });
+});
+
 describe('robber discard', () => {
   it('forces discarding half and rejects the wrong count', () => {
     const game = startedGame();

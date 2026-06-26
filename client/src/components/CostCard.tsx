@@ -6,22 +6,23 @@ function costIcons(cost: ResourceBag): string {
   return RESOURCE_TYPES.flatMap((r) => Array.from({ length: cost[r] }, () => ICON[r])).join('') || '—';
 }
 
-// Static reference of what each thing costs to build/buy.
+// What each thing costs and how many victory points it's worth.
 export function CostCard() {
-  const rows: Array<[string, ResourceBag]> = [
-    ['Road', COSTS.road],
-    ['Settlement', COSTS.settlement],
-    ['City', COSTS.city],
-    ['Dev card', COSTS.devCard],
+  const rows: Array<[string, ResourceBag, string]> = [
+    ['Road', COSTS.road, '+2 VP if longest'],
+    ['Settlement', COSTS.settlement, '1 VP'],
+    ['City', COSTS.city, '2 VP'],
+    ['Dev card', COSTS.devCard, 'some = 1 VP'],
   ];
   return (
     <div className="cost-card">
-      <strong>Build costs</strong>
+      <strong>Build costs / VP</strong>
       <ul className="cost-list">
-        {rows.map(([name, cost]) => (
+        {rows.map(([name, cost, vp]) => (
           <li key={name}>
             <span>{name}</span>
             <span className="cost-icons">{costIcons(cost)}</span>
+            <span className="cost-vp muted">{vp}</span>
           </li>
         ))}
       </ul>

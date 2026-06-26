@@ -46,8 +46,12 @@ import {
 export interface ApplyResult {
   ok: boolean;
   error?: string;
-  /** Human-readable log lines to broadcast. */
+  /** Human-readable log lines broadcast to everyone. */
   logs: string[];
+  /** Big moments shown to all as a centered banner (awards, winner). */
+  announcements?: string[];
+  /** Log lines sent privately to a single player (e.g. what was stolen). */
+  privateLogs?: Record<string, string[]>;
 }
 
 function fullBank(): ResourceBag {
@@ -105,6 +109,7 @@ export function createInitialGame(roomCode: string, host: Player): GameState {
     longestRoadOwner: null,
     largestArmyOwner: null,
     winnerId: null,
+    targetPoints: WINNING_POINTS,
   };
 }
 
@@ -139,17 +144,24 @@ export function applyAction(game: GameState, playerId: string, action: Action): 
 
   // After any successful, non-lobby action, recompute awards + points and check win.
   if (result.ok && game.phase !== 'lobby' && game.winnerId === null) {
-    updateScores(game, result.logs);
+    updateScores(game, result);
     const acting = game.players.find((p) => p.id === playerId);
-    if (acting) checkWin(game, acting, result.logs);
+    if (acting) checkWin(game, acting, result);
   }
   return result;
+}
+
+/** Append to an ApplyResult's announcements (lazily creating the array). */
+function announce(result: ApplyResult, message: string): void {
+  (result.announcements ??= []).push(message);
 }
 
 function dispatch(game: GameState, playerId: string, action: Action): ApplyResult {
   switch (action.type) {
     case 'setColor':
       return setColor(game, playerId, action.color);
+    case 'setTargetPoints':
+      return setTargetPoints(game, playerId, action.points);
     case 'startGame':
       return startGame(game, playerId);
     case 'placeSetupSettlement':
@@ -172,6 +184,14 @@ function dispatch(game: GameState, playerId: string, action: Action): ApplyResul
       return moveRobber(game, playerId, action.tileId, action.stealFromPlayerId);
     case 'bankTrade':
       return bankTrade(game, playerId, action.give, action.receive);
+    case 'proposeTrade':
+      return proposeTrade(game, playerId, action.give, action.receive);
+    case 'acceptTrade':
+      return acceptTrade(game, playerId, action.tradeId);
+    case 'finalizeTrade':
+      return finalizeTrade(game, playerId, action.tradeId, action.withPlayerId);
+    case 'cancelTrade':
+      return cancelTrade(game, playerId);
     case 'buyDevCard':
       return buyDevCard(game, playerId);
     case 'playKnight':
@@ -202,20 +222,22 @@ function nameOf(game: GameState, playerId: string): string {
   return game.players.find((p) => p.id === playerId)?.name ?? '?';
 }
 
-function checkWin(game: GameState, player: Player, logs: string[]): void {
-  if (totalVictoryPoints(player) >= WINNING_POINTS) {
+function checkWin(game: GameState, player: Player, result: ApplyResult): void {
+  if (totalVictoryPoints(player) >= game.targetPoints) {
     game.phase = 'ended';
     game.winnerId = player.id;
-    logs.push(`${player.name} wins with ${totalVictoryPoints(player)} points!`);
+    const msg = `${player.name} wins with ${totalVictoryPoints(player)} points!`;
+    result.logs.push(msg);
+    announce(result, `🏆 ${msg}`);
   }
 }
 
 // ----- Scoring: awards + victory points (Milestone 6) -----
 
 /** Recompute Longest Road + Largest Army owners, then every player's points. */
-function updateScores(game: GameState, logs: string[]): void {
-  recomputeLongestRoad(game, logs);
-  recomputeLargestArmy(game, logs);
+function updateScores(game: GameState, result: ApplyResult): void {
+  recomputeLongestRoad(game, result);
+  recomputeLargestArmy(game, result);
   for (const p of game.players) {
     const b = countBuildings(game.board, p.id);
     let pts = b.settlements + b.cities * 2;
@@ -241,26 +263,33 @@ function resolveAward(
   return current && values[current] >= minimum ? current : null;
 }
 
-function recomputeLongestRoad(game: GameState, logs: string[]): void {
+function recomputeLongestRoad(game: GameState, result: ApplyResult): void {
   const lens: Record<string, number> = {};
   for (const p of game.players) lens[p.id] = computeLongestRoad(game.board, p.id);
   const prev = game.longestRoadOwner;
   const next = resolveAward(game, lens, LONGEST_ROAD_MIN, prev);
   if (next !== prev) {
     game.longestRoadOwner = next;
-    if (next) logs.push(`${nameOf(game, next)} takes Longest Road.`);
-    else logs.push('Longest Road is now unclaimed.');
+    if (next) {
+      result.logs.push(`${nameOf(game, next)} takes Longest Road.`);
+      announce(result, `🛣️ ${nameOf(game, next)} now has the Longest Road (+2 VP)`);
+    } else {
+      result.logs.push('Longest Road is now unclaimed.');
+    }
   }
 }
 
-function recomputeLargestArmy(game: GameState, logs: string[]): void {
+function recomputeLargestArmy(game: GameState, result: ApplyResult): void {
   const knights: Record<string, number> = {};
   for (const p of game.players) knights[p.id] = p.playedKnights;
   const prev = game.largestArmyOwner;
   const next = resolveAward(game, knights, LARGEST_ARMY_MIN, prev);
   if (next !== prev) {
     game.largestArmyOwner = next;
-    if (next) logs.push(`${nameOf(game, next)} takes Largest Army.`);
+    if (next) {
+      result.logs.push(`${nameOf(game, next)} takes Largest Army.`);
+      announce(result, `⚔️ ${nameOf(game, next)} now has the Largest Army (+2 VP)`);
+    }
   }
 }
 
@@ -447,6 +476,7 @@ function endTurn(game: GameState, playerId: string): ApplyResult {
   game.hasRolledThisTurn = false;
   game.hasPlayedDevCardThisTurn = false;
   game.lastRoll = null;
+  game.pendingTrade = null;
   game.phase = 'rollDice';
   return { ok: true, logs: [`${currentPlayer(game).name}'s turn.`] };
 }
@@ -501,6 +531,7 @@ function moveRobber(
   const victims = [...playersOnTile(game.board, tileId)].filter(
     (id) => id !== playerId && bagTotal(game.players.find((p) => p.id === id)!.resources) > 0
   );
+  const privateLogs: Record<string, string[]> = {};
   if (stealFromPlayerId) {
     if (!victims.includes(stealFromPlayerId))
       return { ok: false, error: 'Cannot steal from that player', logs: [] };
@@ -511,11 +542,14 @@ function moveRobber(
     const stolen = pool[Math.floor(seededRng() * pool.length)];
     victim.resources[stolen] -= 1;
     thief.resources[stolen] += 1;
+    // Public line hides the resource; the two players involved learn it privately.
     logs.push(`${thief.name} stole a card from ${victim.name}.`);
+    privateLogs[thief.id] = [`You stole 1 ${stolen} from ${victim.name}.`];
+    privateLogs[victim.id] = [`${thief.name} stole 1 ${stolen} from you.`];
   }
 
   game.phase = robberReturnPhase(game);
-  return { ok: true, logs };
+  return { ok: true, logs, privateLogs };
 }
 
 // ----- Trading (Milestone 5) -----
@@ -540,6 +574,77 @@ function bankTrade(
   game.bank[give] += rate;
   game.bank[receive] -= 1;
   return { ok: true, logs: [`${player.name} traded ${rate} ${give} for 1 ${receive} (${rate}:1).`] };
+}
+
+// ----- Player-to-player trading -----
+// Standard Catan timing: only the current player (after rolling) may propose a
+// trade; other players accept; the proposer finalizes with one of them.
+
+let tradeCounter = 0;
+
+/** Sanitize a client-supplied bag to non-negative integers for the 5 resources. */
+function cleanBag(bag: ResourceBag): ResourceBag {
+  const out = emptyBag();
+  for (const r of RESOURCE_TYPES) out[r] = Math.max(0, Math.floor(bag?.[r] ?? 0));
+  return out;
+}
+
+function describeBag(bag: ResourceBag): string {
+  const parts = RESOURCE_TYPES.filter((r) => bag[r] > 0).map((r) => `${bag[r]} ${r}`);
+  return parts.length ? parts.join(', ') : 'nothing';
+}
+
+function proposeTrade(game: GameState, playerId: string, rawGive: ResourceBag, rawReceive: ResourceBag): ApplyResult {
+  const blocked = ensureBuildPhase(game, playerId);
+  if (blocked) return { ok: false, error: blocked, logs: [] };
+  if (game.players.length < 2) return { ok: false, error: 'No one to trade with', logs: [] };
+  const give = cleanBag(rawGive);
+  const receive = cleanBag(rawReceive);
+  if (bagTotal(give) === 0 || bagTotal(receive) === 0)
+    return { ok: false, error: 'Offer must give and ask for something', logs: [] };
+  const player = currentPlayer(game);
+  if (!canAfford(player.resources, give))
+    return { ok: false, error: "You don't have what you offered", logs: [] };
+
+  game.pendingTrade = { id: `trade${++tradeCounter}`, from: playerId, give, receive, acceptedBy: [] };
+  return { ok: true, logs: [`${player.name} offers ${describeBag(give)} for ${describeBag(receive)}.`] };
+}
+
+function acceptTrade(game: GameState, playerId: string, tradeId: string): ApplyResult {
+  const trade = game.pendingTrade;
+  if (!trade || trade.id !== tradeId) return { ok: false, error: 'No such trade', logs: [] };
+  if (trade.from === playerId) return { ok: false, error: "You can't accept your own offer", logs: [] };
+  const player = game.players.find((p) => p.id === playerId);
+  if (!player) return { ok: false, error: 'Player not found', logs: [] };
+  if (!canAfford(player.resources, trade.receive))
+    return { ok: false, error: "You don't have what they want", logs: [] };
+  if (!trade.acceptedBy.includes(playerId)) trade.acceptedBy.push(playerId);
+  return { ok: true, logs: [`${player.name} will accept the trade.`] };
+}
+
+function finalizeTrade(game: GameState, playerId: string, tradeId: string, withPlayerId: string): ApplyResult {
+  const trade = game.pendingTrade;
+  if (!trade || trade.id !== tradeId) return { ok: false, error: 'No such trade', logs: [] };
+  if (trade.from !== playerId) return { ok: false, error: 'Only the proposer can finalize', logs: [] };
+  if (!trade.acceptedBy.includes(withPlayerId))
+    return { ok: false, error: 'That player has not accepted', logs: [] };
+  const proposer = game.players.find((p) => p.id === playerId)!;
+  const partner = game.players.find((p) => p.id === withPlayerId)!;
+  if (!canAfford(proposer.resources, trade.give) || !canAfford(partner.resources, trade.receive))
+    return { ok: false, error: 'Someone no longer has the resources', logs: [] };
+
+  proposer.resources = addBag(subtractBag(proposer.resources, trade.give), trade.receive);
+  partner.resources = addBag(subtractBag(partner.resources, trade.receive), trade.give);
+  game.pendingTrade = null;
+  return { ok: true, logs: [`${proposer.name} traded with ${partner.name}.`] };
+}
+
+function cancelTrade(game: GameState, playerId: string): ApplyResult {
+  const trade = game.pendingTrade;
+  if (!trade) return { ok: false, error: 'No active trade', logs: [] };
+  if (trade.from !== playerId) return { ok: false, error: 'Only the proposer can cancel', logs: [] };
+  game.pendingTrade = null;
+  return { ok: true, logs: [`${nameOf(game, playerId)} cancelled the trade.`] };
 }
 
 // ----- Development cards (Milestone 5) -----
@@ -654,6 +759,16 @@ function setColor(game: GameState, playerId: string, color: PlayerColor): ApplyR
   if (!player) return { ok: false, error: 'Player not found', logs: [] };
   player.color = color;
   return { ok: true, logs: [`${player.name} chose ${color}.`] };
+}
+
+function setTargetPoints(game: GameState, playerId: string, points: number): ApplyResult {
+  if (game.phase !== 'lobby') return { ok: false, error: 'Can only change this in the lobby', logs: [] };
+  const host = game.players.find((p) => p.id === playerId);
+  if (!host?.isHost) return { ok: false, error: 'Only the host can change the target', logs: [] };
+  if (!Number.isInteger(points) || points < 3 || points > 20)
+    return { ok: false, error: 'Target must be between 3 and 20', logs: [] };
+  game.targetPoints = points;
+  return { ok: true, logs: [`Target to win set to ${points} points.`] };
 }
 
 function startGame(game: GameState, playerId: string): ApplyResult {

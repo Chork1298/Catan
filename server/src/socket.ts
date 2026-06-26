@@ -32,6 +32,19 @@ function broadcastLog(io: GameServer, room: Room, message: string): void {
   }
 }
 
+function broadcastAnnounce(io: GameServer, room: Room, message: string): void {
+  for (const { socketId } of roomSockets(room)) {
+    io.to(socketId).emit('announce', message);
+  }
+}
+
+/** Send private log lines only to the specific players they're addressed to. */
+function sendPrivateLogs(io: GameServer, room: Room, privateLogs: Record<string, string[]>): void {
+  for (const { playerId, socketId } of roomSockets(room)) {
+    for (const line of privateLogs[playerId] ?? []) io.to(socketId).emit('gameLog', line);
+  }
+}
+
 export function registerSocketHandlers(io: GameServer): void {
   io.on('connection', (socket: GameSocket) => {
     socket.on('createRoom', ({ name }, ack) => {
@@ -85,6 +98,8 @@ export function registerSocketHandlers(io: GameServer): void {
       }
       ack({ ok: true });
       for (const line of result.logs) broadcastLog(io, room, line);
+      if (result.privateLogs) sendPrivateLogs(io, room, result.privateLogs);
+      for (const msg of result.announcements ?? []) broadcastAnnounce(io, room, msg);
       broadcastState(io, room);
     });
 

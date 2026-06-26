@@ -3,13 +3,14 @@ import { PLAYER_COLORS, type PlayerColor, type PlayerView } from '@catan/shared'
 export interface LobbyProps {
   view: PlayerView;
   onSetColor: (color: PlayerColor) => void;
+  onSetTarget: (points: number) => void;
   onStart: () => void;
   onLeave: () => void;
 }
 
 // Pre-game lobby: room code to share, seated players, a color picker (no two
-// players may share a color), and the host's Start button.
-export function Lobby({ view, onSetColor, onStart, onLeave }: LobbyProps) {
+// players may share a color), a host-set win target, and the host's Start button.
+export function Lobby({ view, onSetColor, onSetTarget, onStart, onLeave }: LobbyProps) {
   const { game, youId } = view;
   const me = game.players.find((p) => p.id === youId);
   const isHost = !!me?.isHost;
@@ -52,6 +53,16 @@ export function Lobby({ view, onSetColor, onStart, onLeave }: LobbyProps) {
             />
           );
         })}
+      </div>
+
+      <div className="target-row">
+        <span>Points to win: <strong>{game.targetPoints}</strong></span>
+        {isHost && (
+          <span className="target-buttons">
+            <button className="mini" onClick={() => onSetTarget(game.targetPoints - 1)} disabled={game.targetPoints <= 3}>−</button>
+            <button className="mini" onClick={() => onSetTarget(game.targetPoints + 1)} disabled={game.targetPoints >= 20}>+</button>
+          </span>
+        )}
       </div>
 
       {isHost ? (

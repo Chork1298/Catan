@@ -39,9 +39,15 @@ function connect(): GameSocket {
   return io({ autoConnect: true });
 }
 
+export interface Announcement {
+  id: number;
+  text: string;
+}
+
 export interface UseGame {
   view: PlayerView | null;
   logs: string[];
+  announcements: Announcement[];
   error: string | null;
   connected: boolean;
   createRoom: (name: string) => Promise<void>;
@@ -52,8 +58,10 @@ export interface UseGame {
 
 export function useGame(): UseGame {
   const socketRef = useRef<GameSocket | null>(null);
+  const announceId = useRef(0);
   const [view, setView] = useState<PlayerView | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
 
@@ -74,6 +82,11 @@ export function useGame(): UseGame {
     socket.on('disconnect', () => setConnected(false));
     socket.on('stateUpdate', (v) => setView(v));
     socket.on('gameLog', (msg) => setLogs((prev) => [...prev.slice(-49), msg]));
+    socket.on('announce', (msg) => {
+      const id = ++announceId.current;
+      setAnnouncements((prev) => [...prev, { id, text: msg }]);
+      setTimeout(() => setAnnouncements((prev) => prev.filter((a) => a.id !== id)), 4500);
+    });
     socket.on('roomError', (msg) => setError(msg));
 
     return () => {
@@ -131,5 +144,5 @@ export function useGame(): UseGame {
     setLogs([]);
   }, []);
 
-  return { view, logs, error, connected, createRoom, joinRoom, sendAction, leave };
+  return { view, logs, announcements, error, connected, createRoom, joinRoom, sendAction, leave };
 }

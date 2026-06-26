@@ -40,7 +40,8 @@ export function Board({
       className="board"
       viewBox={`${vb.x} ${vb.y} ${vb.w} ${vb.h}`}
       width="100%"
-      style={{ maxWidth: 720, display: 'block' }}
+      height="100%"
+      preserveAspectRatio="xMidYMid meet"
     >
       {/* Tiles */}
       {Object.values(board.tiles).map((tile) => {

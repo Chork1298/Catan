@@ -8,7 +8,7 @@ import { GameView } from './components/GameView.js';
 //   phase 'lobby'  -> Lobby (waiting room)
 //   otherwise      -> GameView (the board)
 export function App() {
-  const { view, logs, error, connected, createRoom, joinRoom, sendAction, leave } = useGame();
+  const { view, logs, announcements, error, connected, createRoom, joinRoom, sendAction, leave } = useGame();
 
   if (!view) {
     return (
@@ -24,6 +24,7 @@ export function App() {
         <Lobby
           view={view}
           onSetColor={(color) => sendAction({ type: 'setColor', color })}
+          onSetTarget={(points) => sendAction({ type: 'setTargetPoints', points })}
           onStart={() => sendAction({ type: 'startGame' })}
           onLeave={leave}
         />
@@ -32,8 +33,8 @@ export function App() {
   }
 
   return (
-    <main className="app-shell wide">
-      <GameView view={view} logs={logs} onAction={sendAction} onLeave={leave} />
+    <main className="game-shell">
+      <GameView view={view} logs={logs} announcements={announcements} onAction={sendAction} onLeave={leave} />
     </main>
   );
 }

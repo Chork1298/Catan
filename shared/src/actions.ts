@@ -7,6 +7,7 @@ import type { ResourceBag, ResourceType, GameState, PlayerColor } from './types.
 export type Action =
   // lobby
   | { type: 'setColor'; color: PlayerColor }
+  | { type: 'setTargetPoints'; points: number }
   | { type: 'startGame' }
   // setup phase
   | { type: 'placeSetupSettlement'; vertexId: string }
@@ -68,6 +69,8 @@ export interface ServerToClientEvents {
   stateUpdate: (view: PlayerView) => void;
   /** Lightweight log line for the in-game event feed. */
   gameLog: (message: string) => void;
+  /** A big moment everyone should see as a centered banner (award, winner). */
+  announce: (message: string) => void;
   /** Sent when a fatal room error occurs (e.g. room closed). */
   roomError: (message: string) => void;
 }

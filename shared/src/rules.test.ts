@@ -27,7 +27,7 @@ function makeGame(): GameState {
     devDeck: [], currentPlayerIndex: 0, turnNumber: 1, lastRoll: null,
     hasRolledThisTurn: true, hasPlayedDevCardThisTurn: false, setupQueueIndex: 0,
     setupStep: 'settlement', lastSetupVertex: null, pendingTrade: null, mustDiscard: [],
-    longestRoadOwner: null, largestArmyOwner: null, winnerId: null,
+    longestRoadOwner: null, largestArmyOwner: null, winnerId: null, targetPoints: 10,
   };
 }
 

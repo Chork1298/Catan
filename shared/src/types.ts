@@ -172,4 +172,6 @@ export interface GameState {
   longestRoadOwner: string | null;
   largestArmyOwner: string | null;
   winnerId: string | null;
+  /** Victory points required to win (host-adjustable in the lobby). */
+  targetPoints: number;
 }

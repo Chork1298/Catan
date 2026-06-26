@@ -19,20 +19,24 @@ import {
   type ResourceBag,
   type ResourceType,
 } from '@catan/shared';
+import type { Announcement } from '../net.js';
 import { Board } from './Board.js';
 import { ResourceHand } from './ResourceHand.js';
 import { ResourceSelect } from './ResourceSelect.js';
 import { TradePanel } from './TradePanel.js';
+import { TradeBox } from './TradeBox.js';
 import { DevCardPanel } from './DevCardPanel.js';
 import { Inventory } from './Inventory.js';
 import { CostCard } from './CostCard.js';
 import { DiceRoll } from './DiceRoll.js';
+import { DiceOverlay } from './DiceOverlay.js';
 import { TurnBanner } from './TurnBanner.js';
 import { playDing } from '../sound.js';
 
 export interface GameViewProps {
   view: PlayerView;
   logs: string[];
+  announcements: Announcement[];
   onAction: (action: Action) => void;
   onLeave: () => void;
 }
@@ -57,11 +61,7 @@ function colorizeLog(line: string, players: Player[]): ReactNode[] {
       parts.forEach((part, i) => {
         if (part) out.push(part);
         if (i < parts.length - 1)
-          out.push(
-            <span key={`${p.id}-${i}-${out.length}`} style={{ color: p.color, fontWeight: 600 }}>
-              {p.name}
-            </span>
-          );
+          out.push(<span key={`${p.id}-${i}-${out.length}`} style={{ color: p.color, fontWeight: 600 }}>{p.name}</span>);
       });
       return out;
     });
@@ -69,13 +69,14 @@ function colorizeLog(line: string, players: Player[]): ReactNode[] {
   return nodes;
 }
 
-export function GameView({ view, logs, onAction, onLeave }: GameViewProps) {
+export function GameView({ view, logs, announcements, onAction, onLeave }: GameViewProps) {
   const { game, youId, opponentSecrets } = view;
   const [buildMode, setBuildMode] = useState<BuildMode>(null);
   const [devRoad, setDevRoad] = useState<string[] | null>(null);
   const [robberTile, setRobberTile] = useState<string | null>(null);
   const [modal, setModal] = useState<'yearOfPlenty' | 'monopoly' | null>(null);
   const [showTurnBanner, setShowTurnBanner] = useState(false);
+  const [diceOverlay, setDiceOverlay] = useState<{ die1: number; die2: number; key: string } | null>(null);
 
   const me = game.players.find((p) => p.id === youId)!;
   const current = game.players[game.currentPlayerIndex];
@@ -84,8 +85,8 @@ export function GameView({ view, logs, onAction, onLeave }: GameViewProps) {
   const inSetup = game.phase === 'setupRound1' || game.phase === 'setupRound2';
   const mustDiscard = game.mustDiscard.includes(youId);
   const inRobber = game.phase === 'moveRobber' && isMyTurn;
+  const rollKey = game.lastRoll ? `${game.turnNumber}:${game.lastRoll.die1}:${game.lastRoll.die2}` : 'none';
 
-  // --- Affordability + piece limits (for greying out build buttons) ---
   const built = countBuildings(game.board, youId);
   const roadsUsed = countRoads(game.board, youId);
   const canAffordRoad = canAfford(me.resources, COSTS.road) && roadsUsed < PIECE_LIMITS.roads;
@@ -93,22 +94,30 @@ export function GameView({ view, logs, onAction, onLeave }: GameViewProps) {
   const canAffordCity = canAfford(me.resources, COSTS.city) && built.cities < PIECE_LIMITS.cities;
   const canAffordDev = canAfford(me.resources, COSTS.devCard);
 
-  // --- "Your turn" banner + ding on transition to your turn ---
+  // Big centered dice animation on each new roll.
+  const prevRollKey = useRef('none');
+  useEffect(() => {
+    if (game.lastRoll && rollKey !== 'none' && rollKey !== prevRollKey.current) {
+      setDiceOverlay({ die1: game.lastRoll.die1, die2: game.lastRoll.die2, key: rollKey });
+    }
+    prevRollKey.current = rollKey;
+  }, [rollKey, game.lastRoll]);
+
+  // "Your turn" banner + ding when you become the current player.
   const prevCurrentId = useRef<string | null>(null);
   useEffect(() => {
     const curId = current?.id ?? null;
-    const justBecameMine =
-      curId === youId && prevCurrentId.current !== youId && game.phase !== 'lobby' && game.phase !== 'ended';
+    const justBecameMine = curId === youId && prevCurrentId.current !== youId && game.phase !== 'lobby' && game.phase !== 'ended';
     prevCurrentId.current = curId;
     if (justBecameMine) {
       setShowTurnBanner(true);
       playDing();
-      const t = setTimeout(() => setShowTurnBanner(false), 2000);
+      const t = setTimeout(() => setShowTurnBanner(false), 2200);
       return () => clearTimeout(t);
     }
   }, [current?.id, youId, game.phase]);
 
-  // --- Auto-scroll the log to the newest message ---
+  // Auto-scroll the log to the newest message.
   const logRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -172,9 +181,7 @@ export function GameView({ view, logs, onAction, onLeave }: GameViewProps) {
 
   const handleTile = (tileId: string) => {
     if (!inRobber || tileId === game.board.robberTileId) return;
-    const victims = [...playersOnTile(game.board, tileId)].filter(
-      (id) => id !== youId && (opponentSecrets[id]?.resourceCount ?? 0) > 0
-    );
+    const victims = [...playersOnTile(game.board, tileId)].filter((id) => id !== youId && (opponentSecrets[id]?.resourceCount ?? 0) > 0);
     if (victims.length === 0) onAction({ type: 'moveRobber', tileId, stealFromPlayerId: null });
     else setRobberTile(tileId);
   };
@@ -188,101 +195,45 @@ export function GameView({ view, logs, onAction, onLeave }: GameViewProps) {
 
   const handTotal = bagToList(me.resources).length;
   const canPlayDev = isMyTurn && !game.hasPlayedDevCardThisTurn && (game.phase === 'main' || game.phase === 'rollDice');
-  const rollKey = game.lastRoll ? `${game.turnNumber}:${game.lastRoll.die1}:${game.lastRoll.die2}` : 'none';
+  const showDevPanel = isMyTurn && (game.phase === 'main' || game.phase === 'rollDice') && devRoad === null;
+  const showTradePanel = isMyTurn && game.phase === 'main' && devRoad === null;
 
   const instruction = () => {
-    if (game.phase === 'ended') {
-      const winner = game.players.find((p) => p.id === game.winnerId);
-      return `🏆 ${winner?.name ?? 'Someone'} wins!`;
-    }
+    if (game.phase === 'ended') return '🏆 Game over';
     if (mustDiscard) return 'You must discard.';
     if (inRobber) return robberTile ? 'Choose a player to steal from.' : 'Click a tile to move the robber.';
     if (game.phase === 'discard') return 'Waiting for players to discard…';
     if (game.phase === 'moveRobber') return `Waiting for ${current?.name} to move the robber…`;
     if (!isMyTurn) return `Waiting for ${current?.name}…`;
     if (mode === 'devroad') return 'Pick up to 2 road spots, then confirm.';
-    if (mode === 'setup-settlement') return 'Place a settlement (highlighted spots).';
+    if (mode === 'setup-settlement') return 'Place a settlement.';
     if (mode === 'setup-road') return 'Place a road next to your settlement.';
-    if (game.phase === 'rollDice') return 'Roll the dice to start your turn.';
+    if (game.phase === 'rollDice') return 'Roll the dice (or play a dev card first).';
     if (buildMode) return `Click a highlighted spot to build a ${buildMode}.`;
     return 'Build, trade, play a card, or end your turn.';
   };
 
+  const winner = game.players.find((p) => p.id === game.winnerId);
+
   return (
-    <div className="game">
-      <TurnBanner show={showTurnBanner} />
-
-      <div className="game-main">
-        <div className="game-header">
-          <span>Room <strong>{game.roomCode}</strong></span>
-          <span className="muted">Turn {game.turnNumber}</span>
-          {game.lastRoll && <DiceRoll die1={game.lastRoll.die1} die2={game.lastRoll.die2} rollKey={rollKey} />}
-        </div>
-
-        <Board
-          board={game.board}
-          playerColors={playerColors}
-          highlightVertices={highlightVertices}
-          highlightEdges={highlightEdges}
-          highlightTiles={highlightTiles}
-          onVertexClick={isMyTurn ? handleVertex : undefined}
-          onEdgeClick={isMyTurn ? handleEdge : undefined}
-          onTileClick={inRobber ? handleTile : undefined}
-        />
-
-        <p className="instruction">{instruction()}</p>
-
-        <div className="controls">
-          {isMyTurn && game.phase === 'rollDice' && (
-            <button onClick={() => onAction({ type: 'rollDice' })}>🎲 Roll Dice</button>
-          )}
-
-          {mode === 'devroad' && devRoad && (
-            <>
-              <button disabled={devRoad.length === 0} onClick={() => { onAction({ type: 'playRoadBuilding', edgeIds: devRoad }); setDevRoad(null); }}>
-                Build {devRoad.length} road(s)
-              </button>
-              <button className="link-button" onClick={() => setDevRoad(null)}>Cancel</button>
-            </>
-          )}
-
-          {isMyTurn && game.phase === 'main' && devRoad === null && (
-            <>
-              <button className={buildMode === 'road' ? 'sel' : ''} disabled={!canAffordRoad} onClick={() => setBuildMode('road')}>Road (🧱🌲)</button>
-              <button className={buildMode === 'settlement' ? 'sel' : ''} disabled={!canAffordSettlement} onClick={() => setBuildMode('settlement')}>Settlement (🧱🌲🐑🌾)</button>
-              <button className={buildMode === 'city' ? 'sel' : ''} disabled={!canAffordCity} onClick={() => setBuildMode('city')}>City (🌾🌾⛰️⛰️⛰️)</button>
-              {buildMode && <button className="link-button" onClick={() => setBuildMode(null)}>Cancel</button>}
-              <button onClick={() => onAction({ type: 'endTurn' })}>End Turn ▶</button>
-            </>
-          )}
-        </div>
-
-        {isMyTurn && game.phase === 'main' && devRoad === null && (
-          <div className="panels">
-            <TradePanel board={game.board} playerId={youId} onTrade={(give, receive) => onAction({ type: 'bankTrade', give, receive })} />
-            <DevCardPanel
-              cards={me.devCards}
-              turnNumber={game.turnNumber}
-              canPlay={canPlayDev}
-              canBuy={game.phase === 'main' && canAffordDev}
-              onBuy={() => onAction({ type: 'buyDevCard' })}
-              onPlay={playDevCard}
-            />
-          </div>
-        )}
-
-        <div className="info-row">
-          <Inventory board={game.board} playerId={youId} />
-          <CostCard />
-        </div>
-
-        <h3>Your hand</h3>
-        <ResourceHand resources={me.resources} />
+    <div className="game-grid">
+      <TurnBanner show={showTurnBanner && isMyTurn} />
+      {diceOverlay && <DiceOverlay key={diceOverlay.key} die1={diceOverlay.die1} die2={diceOverlay.die2} onDone={() => setDiceOverlay(null)} />}
+      <div className="announce-stack">
+        {announcements.map((a) => <div key={a.id} className="announce">{a.text}</div>)}
       </div>
 
-      <aside className="game-side">
+      <header className="g-header">
+        <span>Room <strong>{game.roomCode}</strong></span>
+        <span className="muted">Turn {game.turnNumber}</span>
+        <span className="muted">Win at {game.targetPoints}</span>
+        {game.lastRoll && <DiceRoll die1={game.lastRoll.die1} die2={game.lastRoll.die2} />}
+        <button className="link-button" onClick={onLeave}>Leave</button>
+      </header>
+
+      <section className="g-left">
         <h3>Players</h3>
-        <ul className="player-list">
+        <ul className="player-list big">
           {game.players.map((p) => {
             const isYou = p.id === youId;
             const handCount = isYou ? handTotal : opponentSecrets[p.id]?.resourceCount ?? 0;
@@ -299,14 +250,92 @@ export function GameView({ view, logs, onAction, onLeave }: GameViewProps) {
             );
           })}
         </ul>
+        <Inventory
+          board={game.board}
+          playerId={youId}
+          hasLongestRoad={game.longestRoadOwner === youId}
+          hasLargestArmy={game.largestArmyOwner === youId}
+        />
+        <CostCard />
+      </section>
 
+      <section className="g-board">
+        <Board
+          board={game.board}
+          playerColors={playerColors}
+          highlightVertices={highlightVertices}
+          highlightEdges={highlightEdges}
+          highlightTiles={highlightTiles}
+          onVertexClick={isMyTurn ? handleVertex : undefined}
+          onEdgeClick={isMyTurn ? handleEdge : undefined}
+          onTileClick={inRobber ? handleTile : undefined}
+        />
+        <p className="instruction">{instruction()}</p>
+      </section>
+
+      <aside className="g-right">
+        {game.pendingTrade && (
+          <TradeBox
+            trade={game.pendingTrade}
+            players={game.players}
+            youId={youId}
+            myResources={me.resources}
+            onAccept={() => onAction({ type: 'acceptTrade', tradeId: game.pendingTrade!.id })}
+            onFinalize={(withId) => onAction({ type: 'finalizeTrade', tradeId: game.pendingTrade!.id, withPlayerId: withId })}
+            onCancel={() => onAction({ type: 'cancelTrade' })}
+          />
+        )}
+        {showTradePanel && (
+          <TradePanel
+            board={game.board}
+            playerId={youId}
+            myResources={me.resources}
+            hasPendingTrade={!!game.pendingTrade}
+            onPropose={(give, receive) => onAction({ type: 'proposeTrade', give, receive })}
+            onBankTrade={(give, receive) => onAction({ type: 'bankTrade', give, receive })}
+          />
+        )}
+        {showDevPanel && (
+          <DevCardPanel
+            cards={me.devCards}
+            turnNumber={game.turnNumber}
+            canPlay={canPlayDev}
+            canBuy={game.phase === 'main' && canAffordDev}
+            onBuy={() => onAction({ type: 'buyDevCard' })}
+            onPlay={playDevCard}
+          />
+        )}
         <h3>Log</h3>
         <div className="log" ref={logRef}>
           {logs.length === 0 ? <p className="muted">No events yet.</p> : logs.map((l, i) => <p key={i}>{colorizeLog(l, game.players)}</p>)}
         </div>
-
-        <button className="link-button" onClick={onLeave}>Leave game</button>
       </aside>
+
+      <footer className="g-bottom">
+        <div className="controls">
+          {isMyTurn && game.phase === 'rollDice' && (
+            <button onClick={() => onAction({ type: 'rollDice' })}>🎲 Roll Dice</button>
+          )}
+          {mode === 'devroad' && devRoad && (
+            <>
+              <button disabled={devRoad.length === 0} onClick={() => { onAction({ type: 'playRoadBuilding', edgeIds: devRoad }); setDevRoad(null); }}>
+                Build {devRoad.length} road(s)
+              </button>
+              <button className="link-button" onClick={() => setDevRoad(null)}>Cancel</button>
+            </>
+          )}
+          {isMyTurn && game.phase === 'main' && devRoad === null && (
+            <>
+              <button className={buildMode === 'road' ? 'sel' : ''} disabled={!canAffordRoad} onClick={() => setBuildMode('road')}>Road</button>
+              <button className={buildMode === 'settlement' ? 'sel' : ''} disabled={!canAffordSettlement} onClick={() => setBuildMode('settlement')}>Settlement</button>
+              <button className={buildMode === 'city' ? 'sel' : ''} disabled={!canAffordCity} onClick={() => setBuildMode('city')}>City</button>
+              {buildMode && <button className="link-button" onClick={() => setBuildMode(null)}>Cancel</button>}
+              <button onClick={() => onAction({ type: 'endTurn' })}>End Turn ▶</button>
+            </>
+          )}
+        </div>
+        <ResourceHand resources={me.resources} />
+      </footer>
 
       {mustDiscard && (
         <ResourceSelect
@@ -337,22 +366,24 @@ export function GameView({ view, logs, onAction, onLeave }: GameViewProps) {
       )}
 
       {modal === 'yearOfPlenty' && (
-        <ResourceSelect
-          title="Year of Plenty — take 2"
-          target={2}
+        <ResourceSelect title="Year of Plenty — take 2" target={2}
           onConfirm={(bag) => { onAction({ type: 'playYearOfPlenty', resources: bagToList(bag) }); setModal(null); }}
-          onCancel={() => setModal(null)}
-        />
+          onCancel={() => setModal(null)} />
+      )}
+      {modal === 'monopoly' && (
+        <ResourceSelect title="Monopoly — choose 1" target={1} confirmLabel="Take all"
+          onConfirm={(bag) => { onAction({ type: 'playMonopoly', resource: bagToList(bag)[0] }); setModal(null); }}
+          onCancel={() => setModal(null)} />
       )}
 
-      {modal === 'monopoly' && (
-        <ResourceSelect
-          title="Monopoly — choose 1"
-          target={1}
-          confirmLabel="Take all"
-          onConfirm={(bag) => { onAction({ type: 'playMonopoly', resource: bagToList(bag)[0] }); setModal(null); }}
-          onCancel={() => setModal(null)}
-        />
+      {game.phase === 'ended' && winner && (
+        <div className="modal-backdrop">
+          <div className="modal winner-modal">
+            <h2>🏆 {winner.name} wins!</h2>
+            <p>{winner.publicVictoryPoints}+ victory points</p>
+            <button onClick={onLeave}>Back to menu</button>
+          </div>
+        </div>
       )}
     </div>
   );
