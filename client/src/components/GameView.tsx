@@ -39,7 +39,7 @@ import { DiceRoll } from './DiceRoll.js';
 import { DiceOverlay } from './DiceOverlay.js';
 import { TurnBanner } from './TurnBanner.js';
 import { BuildingInspector } from './BuildingInspector.js';
-import { playDing, startWarRiff, stopWarRiff, setWarVolume } from '../sound.js';
+import { playDing } from '../sound.js';
 
 export interface GameViewProps {
   view: PlayerView;
@@ -102,7 +102,6 @@ export function GameView({ view, logs, announcements, onAction, onLeave }: GameV
   const [muted, setMuted] = useState(false);
   const [volume, setVolume] = useState(0.6);
   const warAudioRef = useRef<HTMLAudioElement>(null);
-  const audioFailed = useRef(false);
 
   const me = game.players.find((p) => p.id === youId)!;
   const current = game.players[game.currentPlayerIndex];
@@ -156,26 +155,21 @@ export function GameView({ view, logs, announcements, onAction, onLeave }: GameV
   const warSecs = game.warEndsAt ? Math.max(0, Math.ceil((game.warEndsAt - now) / 1000)) : null;
   const turnSecs = game.turnEndsAt ? Math.max(0, Math.ceil((game.turnEndsAt - now) / 1000)) : null;
 
-  // Keep the live volume in sync with the slider (mp3 + synth fallback).
+  // Keep the live volume in sync with the slider.
   useEffect(() => {
     if (warAudioRef.current) warAudioRef.current.volume = volume;
-    setWarVolume(volume);
   }, [volume]);
 
-  // Heavy metal during war: play the bundled mp3, or a synth riff if it's absent
-  // (e.g. on the public deploy where the copyrighted track isn't shipped).
+  // Heavy metal during war: play only the bundled mp3 (/war-metal.mp3).
   useEffect(() => {
-    const atWar = !!game.pendingWar;
     const a = warAudioRef.current;
-    if (atWar && !muted && volume > 0) {
-      if (a) { a.volume = volume; }
-      if (a && !audioFailed.current) a.play().catch(() => { audioFailed.current = true; startWarRiff(); });
-      else startWarRiff();
+    if (!a) return;
+    if (game.pendingWar && !muted && volume > 0) {
+      a.volume = volume;
+      void a.play().catch(() => { /* autoplay may be blocked until a click; 🔊/slider re-triggers */ });
     } else {
-      if (a) a.pause();
-      stopWarRiff();
+      a.pause();
     }
-    return () => stopWarRiff();
   }, [game.pendingWar, muted, volume]);
 
   // Auto-scroll the log to the newest message.
@@ -337,7 +331,7 @@ export function GameView({ view, logs, announcements, onAction, onLeave }: GameV
 
   return (
     <div className="game-grid">
-      <audio ref={warAudioRef} src="/war-metal.mp3" loop preload="none" onError={() => { audioFailed.current = true; }} />
+      <audio ref={warAudioRef} src="/war-metal.mp3" loop preload="auto" />
       <TurnBanner show={showTurnBanner && isMyTurn} />
       {diceOverlay && <DiceOverlay key={diceOverlay.key} die1={diceOverlay.die1} die2={diceOverlay.die2} onDone={() => setDiceOverlay(null)} />}
       <div className="announce-stack">
