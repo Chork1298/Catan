@@ -3,7 +3,7 @@
 // happens here — the server engine calls these and applies the results.
 
 import type { Board, GameState, Player, ResourceBag, ResourceType } from './types.js';
-import { COSTS, LONGEST_ROAD_MIN } from './constants.js';
+import { ARMY_CAP_BASE, ARMY_PER_CITY, ARMY_PER_SETTLEMENT, COSTS, LONGEST_ROAD_MIN } from './constants.js';
 
 // ----- Resource bag math -----
 
@@ -175,6 +175,89 @@ export function playersOnTile(board: Board, tileId: string): Set<string> {
     if (b) owners.add(b.owner);
   }
   return owners;
+}
+
+// ----- War: garrisons & connectivity (supply network) -----
+
+/** Soldiers garrisoned at a building (0 if none/empty). */
+export function garrisonAt(board: Board, vertexId: string): number {
+  return board.vertices[vertexId]?.building?.soldiers ?? 0;
+}
+
+/** Total soldiers a player has across all their buildings. */
+export function totalArmy(board: Board, playerId: string): number {
+  let n = 0;
+  for (const v of Object.values(board.vertices)) {
+    if (v.building?.owner === playerId) n += v.building.soldiers ?? 0;
+  }
+  return n;
+}
+
+/** Max army a player may field, gated by their economy. */
+export function armyCap(board: Board, playerId: string): number {
+  const b = countBuildings(board, playerId);
+  return ARMY_CAP_BASE + b.settlements * ARMY_PER_SETTLEMENT + b.cities * ARMY_PER_CITY;
+}
+
+/**
+ * All vertices reachable from `start` through a player's own roads. An enemy
+ * building severs the network at its vertex (you can reach it but not pass
+ * through it) — the same rule that breaks Longest Road.
+ */
+export function reachableVertices(board: Board, playerId: string, start: string): Set<string> {
+  const visited = new Set<string>([start]);
+  const stack = [start];
+  while (stack.length) {
+    const u = stack.pop()!;
+    // Can't push supply *through* an enemy-held corner (start is exempt).
+    if (u !== start) {
+      const b = board.vertices[u].building;
+      if (b && b.owner !== playerId) continue;
+    }
+    for (const eId of board.vertices[u].edgeIds) {
+      const e = board.edges[eId];
+      if (e.road !== playerId) continue;
+      const w = e.vertexIds[0] === u ? e.vertexIds[1] : e.vertexIds[0];
+      if (!visited.has(w)) {
+        visited.add(w);
+        stack.push(w);
+      }
+    }
+  }
+  return visited;
+}
+
+/** Soldiers a player can rally to a vertex via their connected road network. */
+export function ralliedArmy(board: Board, playerId: string, start: string): number {
+  let n = 0;
+  for (const v of reachableVertices(board, playerId, start)) {
+    const b = board.vertices[v].building;
+    if (b?.owner === playerId) n += b.soldiers ?? 0;
+  }
+  return n;
+}
+
+/** The attacker-side endpoint of a road they've built up to the target, or null. */
+export function attackRoadEndpoint(board: Board, attackerId: string, targetVertexId: string): string | null {
+  const target = board.vertices[targetVertexId];
+  if (!target) return null;
+  for (const eId of target.edgeIds) {
+    const e = board.edges[eId];
+    if (e.road === attackerId) return e.vertexIds[0] === targetVertexId ? e.vertexIds[1] : e.vertexIds[0];
+  }
+  return null;
+}
+
+/** Can this player declare war on the building at this vertex? */
+export function canDeclareWarOn(board: Board, attackerId: string, targetVertexId: string): boolean {
+  const target = board.vertices[targetVertexId];
+  if (!target?.building || target.building.owner === attackerId) return false;
+  return attackRoadEndpoint(board, attackerId, targetVertexId) !== null;
+}
+
+/** Are two of a player's buildings in the same connected cluster (for transport)? */
+export function sameCluster(board: Board, playerId: string, a: string, b: string): boolean {
+  return reachableVertices(board, playerId, a).has(b);
 }
 
 /** Total points used for the win check (public points + hidden VP dev cards). */

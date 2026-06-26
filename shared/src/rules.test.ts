@@ -4,9 +4,11 @@ import {
   bankTradeRate,
   canAfford,
   canBuildRoadAt,
+  canDeclareWarOn,
   canPlaceSetupSettlement,
   computeLongestRoad,
   distributeForRoll,
+  ralliedArmy,
   violatesDistanceRule,
 } from './rules.js';
 import { COSTS } from './constants.js';
@@ -26,7 +28,7 @@ function makeGame(): GameState {
     bank: { brick: 19, wood: 19, sheep: 19, wheat: 19, ore: 19 },
     devDeck: [], currentPlayerIndex: 0, turnNumber: 1, lastRoll: null,
     hasRolledThisTurn: true, hasPlayedDevCardThisTurn: false, setupQueueIndex: 0,
-    setupStep: 'settlement', lastSetupVertex: null, pendingTrade: null, mustDiscard: [],
+    setupStep: 'settlement', lastSetupVertex: null, pendingTrade: null, pendingWar: null, mustDiscard: [],
     longestRoadOwner: null, largestArmyOwner: null, winnerId: null, targetPoints: 10, turnEndsAt: null, mapRadius: 2,
   };
 }
@@ -142,6 +144,45 @@ describe('computeLongestRoad', () => {
     }
     expect(computeLongestRoad(board, 'A')).toBe(5);
     expect(computeLongestRoad(board, 'B')).toBe(0);
+  });
+});
+
+describe('war connectivity', () => {
+  it('rallies soldiers across a connected road network but not across a gap', () => {
+    const board = generateBoard({ seed: 8 });
+    // Build a 3-vertex chain for A: vA -road- vB -road- vC, garrison each.
+    let vA = Object.values(board.vertices).find((v) => v.edgeIds.length >= 2)!.id;
+    const usedEdges = new Set<string>();
+    const chain = [vA];
+    for (let step = 0; step < 2; step++) {
+      const next = board.vertices[vA].edgeIds.find((eId) => !usedEdges.has(eId));
+      if (!next) break;
+      board.edges[next].road = 'A';
+      usedEdges.add(next);
+      const e = board.edges[next];
+      vA = e.vertexIds[0] === vA ? e.vertexIds[1] : e.vertexIds[0];
+      chain.push(vA);
+    }
+    for (const v of chain) board.vertices[v].building = { type: 'settlement', owner: 'A', soldiers: 2 };
+
+    // From one end, A rallies all 3 garrisons (connected).
+    expect(ralliedArmy(board, 'A', chain[0])).toBe(6);
+
+    // An enemy building in the middle severs the network.
+    board.vertices[chain[1]].building = { type: 'settlement', owner: 'B', soldiers: 0 };
+    expect(ralliedArmy(board, 'A', chain[0])).toBe(2); // only the start end remains
+  });
+
+  it('allows declaring war only on a road-adjacent enemy building', () => {
+    const board = generateBoard({ seed: 8 });
+    const edge = Object.values(board.edges)[0];
+    const [u, w] = edge.vertexIds;
+    board.edges[edge.id].road = 'A';
+    board.vertices[w].building = { type: 'settlement', owner: 'B', soldiers: 1 };
+    expect(canDeclareWarOn(board, 'A', w)).toBe(true); // A's road reaches B's settlement
+    expect(canDeclareWarOn(board, 'A', u)).toBe(false); // empty vertex, no enemy building
+    board.vertices[u].building = { type: 'settlement', owner: 'A' };
+    expect(canDeclareWarOn(board, 'A', u)).toBe(false); // can't attack your own
   });
 });
 

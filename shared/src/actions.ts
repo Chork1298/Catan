@@ -31,6 +31,11 @@ export type Action =
   | { type: 'counterTrade'; tradeId: string; give: ResourceBag; receive: ResourceBag }
   | { type: 'finalizeTrade'; tradeId: string; withPlayerId: string }
   | { type: 'cancelTrade' }
+  // war
+  | { type: 'trainSoldier'; vertexId: string }
+  | { type: 'moveSoldiers'; fromVertexId: string; toVertexId: string; count: number }
+  | { type: 'declareWar'; targetVertexId: string }
+  | { type: 'respondToWar'; response: 'fight' | 'retreat' }
   // robber / discard
   | { type: 'discard'; resources: ResourceBag }
   | { type: 'moveRobber'; tileId: string; stealFromPlayerId: string | null };

@@ -9,9 +9,17 @@ import {
   generateBoard,
   boardRadiusForPlayers,
   addBag,
+  armyCap,
+  attackRoadEndpoint,
   bagTotal,
   bankTradeRate,
   canAfford,
+  canDeclareWarOn,
+  garrisonAt,
+  ralliedArmy,
+  reachableVertices,
+  sameCluster,
+  totalArmy,
   canBuildCityAt,
   canBuildRoadAt,
   canBuildSettlementAt,
@@ -29,7 +37,10 @@ import {
   DEV_DECK_COMPOSITION,
   LARGEST_ARMY_MIN,
   LONGEST_ROAD_MIN,
+  LOSER_CASUALTIES,
   PIECE_LIMITS,
+  SOLDIER_COST,
+  WINNER_CASUALTIES,
   PLAYER_COLORS,
   RESOURCE_TYPES,
   ROBBER_DISCARD_LIMIT,
@@ -106,6 +117,7 @@ export function createInitialGame(roomCode: string, host: Player): GameState {
     setupStep: 'settlement',
     lastSetupVertex: null,
     pendingTrade: null,
+    pendingWar: null,
     mustDiscard: [],
     longestRoadOwner: null,
     largestArmyOwner: null,
@@ -218,6 +230,7 @@ export function forceTurnTimeout(game: GameState): ApplyResult {
       );
       if (!merge(applyAction(game, cur.id, { type: 'moveRobber', tileId: tile.id, stealFromPlayerId: victims[0] ?? null }))) break;
     } else if (game.phase === 'main') {
+      if (game.pendingWar) merge(applyAction(game, game.pendingWar.defenderId, { type: 'respondToWar', response: 'fight' }));
       if (game.pendingTrade) merge(applyAction(game, cur.id, { type: 'cancelTrade' }));
       merge(applyAction(game, cur.id, { type: 'endTurn' }));
       break;
@@ -268,6 +281,14 @@ function dispatch(game: GameState, playerId: string, action: Action): ApplyResul
       return finalizeTrade(game, playerId, action.tradeId, action.withPlayerId);
     case 'cancelTrade':
       return cancelTrade(game, playerId);
+    case 'trainSoldier':
+      return trainSoldier(game, playerId, action.vertexId);
+    case 'moveSoldiers':
+      return moveSoldiers(game, playerId, action.fromVertexId, action.toVertexId, action.count);
+    case 'declareWar':
+      return declareWar(game, playerId, action.targetVertexId);
+    case 'respondToWar':
+      return respondToWar(game, playerId, action.response);
     case 'buyDevCard':
       return buyDevCard(game, playerId);
     case 'playKnight':
@@ -546,6 +567,7 @@ function endTurn(game: GameState, playerId: string): ApplyResult {
   if (game.phase !== 'main') return { ok: false, error: 'Cannot end turn now', logs: [] };
   const notCurrent = requireCurrent(game, playerId);
   if (notCurrent) return { ok: false, error: notCurrent, logs: [] };
+  if (game.pendingWar) return { ok: false, error: 'Resolve the war first', logs: [] };
 
   game.currentPlayerIndex = (game.currentPlayerIndex + 1) % game.players.length;
   game.turnNumber += 1;
@@ -749,6 +771,144 @@ function cancelTrade(game: GameState, playerId: string): ApplyResult {
   if (trade.from !== playerId) return { ok: false, error: 'Only the proposer can cancel', logs: [] };
   game.pendingTrade = null;
   return { ok: true, logs: [`${nameOf(game, playerId)} cancelled the trade.`] };
+}
+
+// ----- War (v1: abstract Soldier, per-building garrison, road clusters) -----
+
+function trainSoldier(game: GameState, playerId: string, vertexId: string): ApplyResult {
+  const blocked = ensureBuildPhase(game, playerId);
+  if (blocked) return { ok: false, error: blocked, logs: [] };
+  const v = game.board.vertices[vertexId];
+  if (v?.building?.owner !== playerId) return { ok: false, error: 'Not your building', logs: [] };
+  if (totalArmy(game.board, playerId) >= armyCap(game.board, playerId))
+    return { ok: false, error: 'Army at capacity (build more to expand it)', logs: [] };
+  const player = currentPlayer(game);
+  if (!canAfford(player.resources, SOLDIER_COST)) return { ok: false, error: 'Need 1 wheat + 1 ore', logs: [] };
+
+  spend(game, player, SOLDIER_COST);
+  v.building.soldiers = (v.building.soldiers ?? 0) + 1;
+  return { ok: true, logs: [`${player.name} trained a soldier.`] };
+}
+
+function moveSoldiers(game: GameState, playerId: string, from: string, to: string, count: number): ApplyResult {
+  const blocked = ensureBuildPhase(game, playerId);
+  if (blocked) return { ok: false, error: blocked, logs: [] };
+  const fromV = game.board.vertices[from];
+  const toV = game.board.vertices[to];
+  if (fromV?.building?.owner !== playerId || toV?.building?.owner !== playerId)
+    return { ok: false, error: 'Both must be your buildings', logs: [] };
+  if (from === to) return { ok: false, error: 'Pick two different buildings', logs: [] };
+  if (!sameCluster(game.board, playerId, from, to))
+    return { ok: false, error: 'Those buildings are not road-connected', logs: [] };
+  const n = Math.floor(count);
+  if (n <= 0 || garrisonAt(game.board, from) < n) return { ok: false, error: 'Not enough soldiers there', logs: [] };
+
+  fromV.building.soldiers = (fromV.building.soldiers ?? 0) - n;
+  toV.building.soldiers = (toV.building.soldiers ?? 0) + n;
+  return { ok: true, logs: [`${nameOf(game, playerId)} moved ${n} soldier(s).`] };
+}
+
+function defenseBonus(game: GameState, targetVertexId: string): number {
+  const b = game.board.vertices[targetVertexId].building;
+  return 1 + (b?.type === 'city' ? 1 : 0); // home + fortified city
+}
+
+function declareWar(game: GameState, playerId: string, targetVertexId: string): ApplyResult {
+  const blocked = ensureBuildPhase(game, playerId);
+  if (blocked) return { ok: false, error: blocked, logs: [] };
+  if (game.pendingWar) return { ok: false, error: 'A war is already underway', logs: [] };
+  if (game.pendingTrade) return { ok: false, error: 'Resolve your trade first', logs: [] };
+  if (!canDeclareWarOn(game.board, playerId, targetVertexId))
+    return { ok: false, error: 'Build a road to an enemy building to attack it', logs: [] };
+
+  const endpoint = attackRoadEndpoint(game.board, playerId, targetVertexId)!;
+  const attackerArmy = ralliedArmy(game.board, playerId, endpoint);
+  if (attackerArmy <= 0) return { ok: false, error: 'You have no soldiers to attack with', logs: [] };
+  const defenderId = game.board.vertices[targetVertexId].building!.owner;
+  const defenderArmy = ralliedArmy(game.board, defenderId, targetVertexId);
+
+  game.pendingWar = { attackerId: playerId, defenderId, targetVertexId, attackerArmy, defenderArmy };
+  const logs = [`${nameOf(game, playerId)} declares war on ${nameOf(game, defenderId)}!`];
+  return {
+    ok: true,
+    logs,
+    announcements: [`⚔️ ${nameOf(game, playerId)} attacks ${nameOf(game, defenderId)}! (${attackerArmy} vs ${defenderArmy})`],
+  };
+}
+
+/** Remove `count` soldiers from a player's buildings reachable from `seed`. */
+function removeArmy(game: GameState, playerId: string, seed: string, count: number): void {
+  let left = count;
+  for (const vId of reachableVertices(game.board, playerId, seed)) {
+    if (left <= 0) break;
+    const b = game.board.vertices[vId].building;
+    if (b?.owner !== playerId || !b.soldiers) continue;
+    const take = Math.min(b.soldiers, left);
+    b.soldiers -= take;
+    left -= take;
+  }
+}
+
+function respondToWar(game: GameState, playerId: string, response: 'fight' | 'retreat'): ApplyResult {
+  const war = game.pendingWar;
+  if (!war) return { ok: false, error: 'No war to respond to', logs: [] };
+  if (war.defenderId !== playerId) return { ok: false, error: 'Only the defender responds', logs: [] };
+
+  const target = game.board.vertices[war.targetVertexId];
+  const endpoint = attackRoadEndpoint(game.board, war.attackerId, war.targetVertexId);
+  const attackerName = nameOf(game, war.attackerId);
+  const defenderName = nameOf(game, war.defenderId);
+
+  if (response === 'retreat') {
+    // Fall back: move the target's garrison to a connected friendly building if possible.
+    const garrison = garrisonAt(game.board, war.targetVertexId);
+    let fallback: string | null = null;
+    for (const vId of reachableVertices(game.board, playerId, war.targetVertexId)) {
+      if (vId === war.targetVertexId) continue;
+      if (game.board.vertices[vId].building?.owner === playerId) { fallback = vId; break; }
+    }
+    if (fallback && garrison > 0) {
+      const fb = game.board.vertices[fallback].building!;
+      fb.soldiers = (fb.soldiers ?? 0) + garrison;
+    }
+    // Attacker captures the abandoned building.
+    target.building = { type: target.building!.type, owner: war.attackerId, soldiers: 0 };
+    game.pendingWar = null;
+    return {
+      ok: true,
+      logs: [`${defenderName} retreated; ${attackerName} captured the building${fallback ? ' (garrison fell back)' : ''}.`],
+      announcements: [`🏳️ ${defenderName} retreated — ${attackerName} takes the building`],
+    };
+  }
+
+  // Fight: recompute strengths, roll, resolve.
+  const attackerArmy = endpoint ? ralliedArmy(game.board, war.attackerId, endpoint) : 0;
+  const defenderArmy = ralliedArmy(game.board, war.defenderId, war.targetVertexId);
+  const bonus = defenseBonus(game, war.targetVertexId);
+  const aRoll = 1 + Math.floor(seededRng() * 6);
+  const dRoll = 1 + Math.floor(seededRng() * 6);
+  const attackTotal = attackerArmy + aRoll;
+  const defendTotal = defenderArmy + bonus + dRoll;
+  const attackerWins = attackTotal > defendTotal; // defender wins ties
+
+  const logs = [
+    `Battle! ${attackerName} ${attackerArmy}+${aRoll} vs ${defenderName} ${defenderArmy}+${bonus}+${dRoll}.`,
+  ];
+
+  if (attackerWins) {
+    if (endpoint) removeArmy(game, war.attackerId, endpoint, WINNER_CASUALTIES);
+    removeArmy(game, war.defenderId, war.targetVertexId, LOSER_CASUALTIES);
+    target.building = { type: target.building!.type, owner: war.attackerId, soldiers: 0 };
+    logs.push(`${attackerName} won and captured the building!`);
+    game.pendingWar = null;
+    return { ok: true, logs, announcements: [`⚔️ ${attackerName} defeated ${defenderName} and seized a building!`] };
+  } else {
+    if (endpoint) removeArmy(game, war.attackerId, endpoint, LOSER_CASUALTIES);
+    removeArmy(game, war.defenderId, war.targetVertexId, WINNER_CASUALTIES);
+    logs.push(`${defenderName} held them off!`);
+    game.pendingWar = null;
+    return { ok: true, logs, announcements: [`🛡️ ${defenderName} repelled ${attackerName}'s attack!`] };
+  }
 }
 
 // ----- Development cards (Milestone 5) -----

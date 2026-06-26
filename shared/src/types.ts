@@ -49,6 +49,8 @@ export type BuildingType = 'settlement' | 'city';
 export interface Building {
   type: BuildingType;
   owner: string; // player id
+  /** Soldiers garrisoned here (war layer). Absent = 0. */
+  soldiers?: number;
 }
 
 /** A board corner where settlements/cities go. */
@@ -139,6 +141,17 @@ export interface DiceRoll {
   total: number;
 }
 
+/** A declared war awaiting the defender's response (fight / retreat). */
+export interface PendingWar {
+  attackerId: string;
+  defenderId: string;
+  /** The enemy building (vertex) under attack. */
+  targetVertexId: string;
+  /** Rallied strengths computed at declaration (for display). */
+  attackerArmy: number;
+  defenderArmy: number;
+}
+
 /** A pending trade offer from one player to others. */
 /** A counter-offer from another player: they give `give` and want `receive`. */
 export interface CounterOffer {
@@ -179,6 +192,8 @@ export interface GameState {
   /** During setup, the vertex of the just-placed settlement (the road must touch it). */
   lastSetupVertex: string | null;
   pendingTrade: TradeOffer | null;
+  /** A declared war awaiting the defender's response, if any. */
+  pendingWar: PendingWar | null;
   /** Player ids who still must discard during the 'discard' phase. */
   mustDiscard: string[];
   longestRoadOwner: string | null;

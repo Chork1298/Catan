@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   canPlaceSetupRoad,
   canPlaceSetupSettlement,
@@ -200,6 +200,73 @@ describe('player-to-player trading', () => {
     expect(a.resources.wheat).toBe(0);
     expect(b.resources.wheat).toBe(1);
     expect(b.resources.sheep).toBe(0);
+  });
+});
+
+describe('war', () => {
+  /** A → road → B's settlement, with A holding `aSoldiers` at the staging vertex. */
+  function warScenario(aSoldiers: number, bSoldiers: number) {
+    const game = startedGame(); // A is current, main phase
+    const edge = Object.values(game.board.edges)[0];
+    const [u, w] = edge.vertexIds;
+    game.board.edges[edge.id].road = 'A';
+    game.board.vertices[u].building = { type: 'settlement', owner: 'A', soldiers: aSoldiers };
+    game.board.vertices[w].building = { type: 'settlement', owner: 'B', soldiers: bSoldiers };
+    return { game, attackerVertex: u, targetVertex: w };
+  }
+
+  it('trains a soldier for 1 wheat + 1 ore (gated by army cap)', () => {
+    const game = startedGame();
+    const a = game.players[0];
+    const myBuilding = Object.values(game.board.vertices).find((v) => v.building?.owner === 'A')!;
+    a.resources = { brick: 0, wood: 0, sheep: 0, wheat: 1, ore: 1 };
+    const res = applyAction(game, 'A', { type: 'trainSoldier', vertexId: myBuilding.id });
+    expect(res.ok).toBe(true);
+    expect(myBuilding.building!.soldiers).toBe(1);
+    expect(a.resources.wheat).toBe(0);
+    expect(a.resources.ore).toBe(0);
+  });
+
+  it('only lets you attack a road-adjacent enemy building', () => {
+    const { game, targetVertex } = warScenario(2, 0);
+    expect(applyAction(game, 'A', { type: 'declareWar', targetVertexId: targetVertex }).ok).toBe(true);
+    expect(game.pendingWar).not.toBeNull();
+    expect(game.pendingWar!.attackerArmy).toBe(2);
+  });
+
+  it('attacker wins a battle and captures the building', () => {
+    const { game, targetVertex } = warScenario(3, 0);
+    applyAction(game, 'A', { type: 'declareWar', targetVertexId: targetVertex });
+    const spy = vi.spyOn(Math, 'random').mockReturnValue(0); // both roll 1
+    const res = applyAction(game, 'B', { type: 'respondToWar', response: 'fight' });
+    spy.mockRestore();
+    expect(res.ok).toBe(true);
+    expect(game.board.vertices[targetVertex].building!.owner).toBe('A'); // captured
+    expect(game.pendingWar).toBeNull();
+  });
+
+  it('defender repels a weak attacker', () => {
+    const { game, targetVertex } = warScenario(1, 9); // huge defender garrison
+    applyAction(game, 'A', { type: 'declareWar', targetVertexId: targetVertex });
+    const spy = vi.spyOn(Math, 'random').mockReturnValue(0);
+    applyAction(game, 'B', { type: 'respondToWar', response: 'fight' });
+    spy.mockRestore();
+    expect(game.board.vertices[targetVertex].building!.owner).toBe('B'); // held
+  });
+
+  it('retreat hands over the building without a fight', () => {
+    const { game, targetVertex } = warScenario(2, 1);
+    applyAction(game, 'A', { type: 'declareWar', targetVertexId: targetVertex });
+    const res = applyAction(game, 'B', { type: 'respondToWar', response: 'retreat' });
+    expect(res.ok).toBe(true);
+    expect(game.board.vertices[targetVertex].building!.owner).toBe('A');
+    expect(game.pendingWar).toBeNull();
+  });
+
+  it('cannot end the turn while a war is pending', () => {
+    const { game, targetVertex } = warScenario(2, 0);
+    applyAction(game, 'A', { type: 'declareWar', targetVertexId: targetVertex });
+    expect(applyAction(game, 'A', { type: 'endTurn' }).ok).toBe(false);
   });
 });
 

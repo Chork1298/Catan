@@ -62,6 +62,20 @@ export const STANDARD_PORT_TYPES: PortType[] = [
   'brick', 'wood', 'sheep', 'wheat', 'ore',
 ];
 
+// ----- War layer (v1, abstract Soldier) -----
+
+/** Cost to train one Soldier (ore = weapons, wheat = feeding troops). */
+export const SOLDIER_COST = { brick: 0, wood: 0, sheep: 0, wheat: 1, ore: 1 } satisfies ResourceBag;
+
+/** Army cap = base + per settlement + per city (economy gates army size). */
+export const ARMY_CAP_BASE = 2;
+export const ARMY_PER_SETTLEMENT = 1;
+export const ARMY_PER_CITY = 2;
+
+/** Combat: loser loses this many soldiers, winner this many (war is costly). */
+export const LOSER_CASUALTIES = 2;
+export const WINNER_CASUALTIES = 1;
+
 /** Points awarded for the longest-road and largest-army bonuses. */
 export const LONGEST_ROAD_POINTS = 2;
 export const LARGEST_ARMY_POINTS = 2;
