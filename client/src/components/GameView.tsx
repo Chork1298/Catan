@@ -15,6 +15,7 @@ import {
   sameCluster,
   totalArmy,
   COSTS,
+  emptyBag,
   PIECE_LIMITS,
   RESOURCE_TYPES,
   SOLDIER_COST,
@@ -37,6 +38,7 @@ import { CostCard } from './CostCard.js';
 import { DiceRoll } from './DiceRoll.js';
 import { DiceOverlay } from './DiceOverlay.js';
 import { TurnBanner } from './TurnBanner.js';
+import { BuildingInspector } from './BuildingInspector.js';
 import { playDing } from '../sound.js';
 
 export interface GameViewProps {
@@ -47,12 +49,20 @@ export interface GameViewProps {
   onLeave: () => void;
 }
 
-type BuildMode = 'road' | 'settlement' | 'city' | 'train' | 'move' | 'attack' | null;
+type BuildMode = 'road' | 'settlement' | 'city' | 'train' | 'move' | 'attack' | 'rename' | null;
 
 function bagToList(bag: ResourceBag): ResourceType[] {
   const out: ResourceType[] = [];
   for (const r of RESOURCE_TYPES) for (let i = 0; i < bag[r]; i++) out.push(r);
   return out;
+}
+
+const RESOURCE_ICON: Record<ResourceType, string> = { brick: '🧱', wood: '🌲', sheep: '🐑', wheat: '🌾', ore: '⛰️' };
+
+function bagText(bag?: ResourceBag): string {
+  if (!bag) return 'nothing';
+  const parts = RESOURCE_TYPES.filter((r) => bag[r] > 0).map((r) => `${bag[r]}${RESOURCE_ICON[r]}`);
+  return parts.join(' ') || 'nothing';
 }
 
 /** Wrap any player name appearing in a log line with that player's color. */
@@ -85,6 +95,10 @@ export function GameView({ view, logs, announcements, onAction, onLeave }: GameV
   const [diceOverlay, setDiceOverlay] = useState<{ die1: number; die2: number; key: string } | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [moveSource, setMoveSource] = useState<string | null>(null); // war: troop move source
+  const [movePlan, setMovePlan] = useState<{ from: string; to: string } | null>(null); // partial-move count modal
+  const [moveCount, setMoveCount] = useState(1);
+  const [inspectVertex, setInspectVertex] = useState<string | null>(null); // building inspector (naming)
+  const [peaceTribute, setPeaceTribute] = useState<ResourceBag | null>(null); // defender's peace builder
 
   const me = game.players.find((p) => p.id === youId)!;
   const current = game.players[game.currentPlayerIndex];
@@ -183,6 +197,8 @@ export function GameView({ view, logs, announcements, onAction, onLeave }: GameV
       }
     } else if (mode === 'attack') {
       for (const v of Object.values(b.vertices)) if (canDeclareWarOn(b, youId, v.id)) verts.add(v.id);
+    } else if (mode === 'rename') {
+      for (const v of Object.values(b.vertices)) if (v.building?.owner === youId) verts.add(v.id);
     }
     return { highlightVertices: verts, highlightEdges: edges };
   }, [game.board, game.lastSetupVertex, mode, devRoad, moveSource, isMyTurn, youId, canTrain]);
@@ -200,13 +216,16 @@ export function GameView({ view, logs, announcements, onAction, onLeave }: GameV
     else if (mode === 'city') { onAction({ type: 'buildCity', vertexId: vId }); setBuildMode(null); }
     else if (mode === 'train') { onAction({ type: 'trainSoldier', vertexId: vId }); /* stay in train mode */ }
     else if (mode === 'attack') { onAction({ type: 'declareWar', targetVertexId: vId }); setBuildMode(null); }
+    else if (mode === 'rename') { setInspectVertex(vId); /* stay in rename mode */ }
     else if (mode === 'move') {
       if (!moveSource) {
         setMoveSource(vId);
       } else if (vId === moveSource) {
         setMoveSource(null); // deselect
       } else {
-        onAction({ type: 'moveSoldiers', fromVertexId: moveSource, toVertexId: vId, count: garrisonAt(game.board, moveSource) });
+        // Open the count picker for a partial move.
+        setMovePlan({ from: moveSource, to: vId });
+        setMoveCount(garrisonAt(game.board, moveSource));
         setMoveSource(null);
         setBuildMode(null);
       }
@@ -266,6 +285,7 @@ export function GameView({ view, logs, announcements, onAction, onLeave }: GameV
     if (mode === 'train') return 'Click your building to train a soldier there.';
     if (mode === 'move') return moveSource ? 'Click a connected building to move the garrison there.' : 'Click a building with soldiers to move.';
     if (mode === 'attack') return 'Click an enemy building your road reaches to attack it.';
+    if (mode === 'rename') return 'Click your building to name it and its soldiers.';
     if (game.phase === 'rollDice') return 'Roll the dice (or play a dev card first).';
     if (buildMode) return `Click a highlighted spot to build a ${buildMode}.`;
     return 'Build, train, trade, attack, or end your turn.';
@@ -395,6 +415,7 @@ export function GameView({ view, logs, announcements, onAction, onLeave }: GameV
               <button className={buildMode === 'train' ? 'sel' : ''} disabled={!canTrain} onClick={() => chooseMode('train')} title="Train a soldier (1🌾 + 1⛰️)">Train ⚔️</button>
               <button className={buildMode === 'move' ? 'sel' : ''} disabled={myArmy === 0} onClick={() => chooseMode('move')}>Move troops</button>
               <button className={buildMode === 'attack' ? 'sel' : ''} disabled={myArmy === 0} onClick={() => chooseMode('attack')}>Attack</button>
+              <button className={buildMode === 'rename' ? 'sel' : ''} onClick={() => chooseMode('rename')} title="Name your settlements & soldiers">Manage 🏷️</button>
               {buildMode && <button className="link-button" onClick={() => chooseMode(null)}>Done</button>}
               <button onClick={() => onAction({ type: 'endTurn' })}>End Turn ▶</button>
             </>
@@ -442,7 +463,7 @@ export function GameView({ view, logs, announcements, onAction, onLeave }: GameV
           onCancel={() => setModal(null)} />
       )}
 
-      {iAmDefender && game.pendingWar && (
+      {iAmDefender && game.pendingWar?.awaiting === 'defender' && (
         <div className="modal-backdrop">
           <div className="modal">
             <h3>⚔️ Under attack!</h3>
@@ -450,14 +471,77 @@ export function GameView({ view, logs, announcements, onAction, onLeave }: GameV
               <span style={{ color: playerColors[game.pendingWar.attackerId], fontWeight: 600 }}>
                 {nameById(game.pendingWar.attackerId)}
               </span>{' '}
-              is attacking your building with <strong>{game.pendingWar.attackerArmy}</strong> soldiers.
+              is attacking with <strong>{game.pendingWar.attackerArmy}</strong> soldiers.
             </p>
             <p className="muted small">
               Your rallied defense: <strong>{game.pendingWar.defenderArmy}</strong> (+ home bonus, + dice). Defender wins ties.
             </p>
+            {peaceTribute === null ? (
+              <div className="modal-actions">
+                <button onClick={() => onAction({ type: 'respondToWar', response: 'fight' })}>Fight</button>
+                <button onClick={() => onAction({ type: 'respondToWar', response: 'retreat' })}>Retreat</button>
+                <button className="mini" onClick={() => setPeaceTribute(emptyBag())}>Offer peace…</button>
+              </div>
+            ) : (
+              <div className="peace-builder">
+                <p className="small muted">Offer tribute for peace:</p>
+                <div className="bag-stepper">
+                  {RESOURCE_TYPES.map((r) => (
+                    <div key={r} className="bag-cell">
+                      <span className="bag-icon">{RESOURCE_ICON[r]}</span>
+                      <button className="mini" disabled={peaceTribute[r] === 0} onClick={() => setPeaceTribute({ ...peaceTribute, [r]: peaceTribute[r] - 1 })}>−</button>
+                      <span className="bag-count">{peaceTribute[r]}</span>
+                      <button className="mini" disabled={peaceTribute[r] >= me.resources[r]} onClick={() => setPeaceTribute({ ...peaceTribute, [r]: peaceTribute[r] + 1 })}>+</button>
+                    </div>
+                  ))}
+                </div>
+                <div className="modal-actions">
+                  <button className="mini" disabled={bagToList(peaceTribute).length === 0} onClick={() => { onAction({ type: 'respondToWar', response: 'peace', tribute: peaceTribute }); setPeaceTribute(null); }}>Send offer</button>
+                  <button className="mini link-button" onClick={() => setPeaceTribute(null)}>Back</button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {iAmAttacker && game.pendingWar?.awaiting === 'attacker' && (
+        <div className="modal-backdrop">
+          <div className="modal">
+            <h3>🕊️ Peace offered</h3>
+            <p>
+              <span style={{ color: playerColors[game.pendingWar.defenderId], fontWeight: 600 }}>{nameById(game.pendingWar.defenderId)}</span>{' '}
+              offers <strong>{bagText(game.pendingWar.peaceOffer)}</strong> to call off your attack.
+            </p>
             <div className="modal-actions">
-              <button onClick={() => onAction({ type: 'respondToWar', response: 'fight' })}>Fight</button>
-              <button onClick={() => onAction({ type: 'respondToWar', response: 'retreat' })}>Retreat (give it up)</button>
+              <button onClick={() => onAction({ type: 'respondToPeace', accept: true })}>Accept peace</button>
+              <button onClick={() => onAction({ type: 'respondToPeace', accept: false })}>Reject — press the attack</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {inspectVertex && game.board.vertices[inspectVertex]?.building?.owner === youId && (
+        <BuildingInspector
+          building={game.board.vertices[inspectVertex].building!}
+          onNameBuilding={(name) => onAction({ type: 'nameBuilding', vertexId: inspectVertex, name })}
+          onRenameSoldier={(soldierId, name) => onAction({ type: 'renameSoldier', vertexId: inspectVertex, soldierId, name })}
+          onClose={() => setInspectVertex(null)}
+        />
+      )}
+
+      {movePlan && (
+        <div className="modal-backdrop">
+          <div className="modal">
+            <h3>Move soldiers</h3>
+            <div className="stepper">
+              <button onClick={() => setMoveCount((c) => Math.max(1, c - 1))} disabled={moveCount <= 1}>−</button>
+              <span className="count">{moveCount}</span>
+              <button onClick={() => setMoveCount((c) => Math.min(garrisonAt(game.board, movePlan.from), c + 1))} disabled={moveCount >= garrisonAt(game.board, movePlan.from)}>+</button>
+            </div>
+            <div className="modal-actions">
+              <button onClick={() => { onAction({ type: 'moveSoldiers', fromVertexId: movePlan.from, toVertexId: movePlan.to, count: moveCount }); setMovePlan(null); }}>Move {moveCount}</button>
+              <button className="link-button" onClick={() => setMovePlan(null)}>Cancel</button>
             </div>
           </div>
         </div>

@@ -205,13 +205,14 @@ describe('player-to-player trading', () => {
 
 describe('war', () => {
   /** A → road → B's settlement, with A holding `aSoldiers` at the staging vertex. */
+  const garr = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `s${i}`, name: 'X' }));
   function warScenario(aSoldiers: number, bSoldiers: number) {
     const game = startedGame(); // A is current, main phase
     const edge = Object.values(game.board.edges)[0];
     const [u, w] = edge.vertexIds;
     game.board.edges[edge.id].road = 'A';
-    game.board.vertices[u].building = { type: 'settlement', owner: 'A', soldiers: aSoldiers };
-    game.board.vertices[w].building = { type: 'settlement', owner: 'B', soldiers: bSoldiers };
+    game.board.vertices[u].building = { type: 'settlement', owner: 'A', garrison: garr(aSoldiers) };
+    game.board.vertices[w].building = { type: 'settlement', owner: 'B', garrison: garr(bSoldiers) };
     return { game, attackerVertex: u, targetVertex: w };
   }
 
@@ -222,7 +223,7 @@ describe('war', () => {
     a.resources = { brick: 0, wood: 0, sheep: 0, wheat: 1, ore: 1 };
     const res = applyAction(game, 'A', { type: 'trainSoldier', vertexId: myBuilding.id });
     expect(res.ok).toBe(true);
-    expect(myBuilding.building!.soldiers).toBe(1);
+    expect(myBuilding.building!.garrison!.length).toBe(1);
     expect(a.resources.wheat).toBe(0);
     expect(a.resources.ore).toBe(0);
   });
@@ -267,6 +268,47 @@ describe('war', () => {
     const { game, targetVertex } = warScenario(2, 0);
     applyAction(game, 'A', { type: 'declareWar', targetVertexId: targetVertex });
     expect(applyAction(game, 'A', { type: 'endTurn' }).ok).toBe(false);
+  });
+
+  it('moves a partial garrison between connected buildings', () => {
+    const game = startedGame();
+    const edge = Object.values(game.board.edges)[0];
+    const [u, w] = edge.vertexIds;
+    game.board.edges[edge.id].road = 'A';
+    game.board.vertices[u].building = { type: 'settlement', owner: 'A', garrison: garr(3) };
+    game.board.vertices[w].building = { type: 'settlement', owner: 'A', garrison: garr(0) };
+    const res = applyAction(game, 'A', { type: 'moveSoldiers', fromVertexId: u, toVertexId: w, count: 2 });
+    expect(res.ok).toBe(true);
+    expect(game.board.vertices[u].building!.garrison!.length).toBe(1);
+    expect(game.board.vertices[w].building!.garrison!.length).toBe(2);
+  });
+
+  it('peace: defender offers tribute, attacker accepts, war ends', () => {
+    const { game, targetVertex } = warScenario(3, 1);
+    const b = game.players.find((p) => p.id === 'B')!;
+    b.resources = { brick: 0, wood: 0, sheep: 0, wheat: 2, ore: 0 };
+    const a = game.players.find((p) => p.id === 'A')!;
+    const aWheat0 = a.resources.wheat;
+    applyAction(game, 'A', { type: 'declareWar', targetVertexId: targetVertex });
+    const tribute = { brick: 0, wood: 0, sheep: 0, wheat: 2, ore: 0 };
+    expect(applyAction(game, 'B', { type: 'respondToWar', response: 'peace', tribute }).ok).toBe(true);
+    expect(game.pendingWar!.awaiting).toBe('attacker');
+    expect(applyAction(game, 'A', { type: 'respondToPeace', accept: true }).ok).toBe(true);
+    expect(game.pendingWar).toBeNull();
+    expect(game.board.vertices[targetVertex].building!.owner).toBe('B'); // defender kept it
+    expect(b.resources.wheat).toBe(0);
+    expect(a.resources.wheat).toBe(aWheat0 + 2);
+  });
+
+  it('rename a soldier and name a building', () => {
+    const game = startedGame();
+    const mine = Object.values(game.board.vertices).find((v) => v.building?.owner === 'A')!;
+    mine.building!.garrison = garr(1);
+    const sid = mine.building!.garrison![0].id;
+    expect(applyAction(game, 'A', { type: 'renameSoldier', vertexId: mine.id, soldierId: sid, name: 'Sir Bonk' }).ok).toBe(true);
+    expect(mine.building!.garrison![0].name).toBe('Sir Bonk');
+    expect(applyAction(game, 'A', { type: 'nameBuilding', vertexId: mine.id, name: 'Fort Kickass' }).ok).toBe(true);
+    expect(mine.building!.name).toBe('Fort Kickass');
   });
 });
 

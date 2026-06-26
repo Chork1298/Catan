@@ -181,14 +181,14 @@ export function playersOnTile(board: Board, tileId: string): Set<string> {
 
 /** Soldiers garrisoned at a building (0 if none/empty). */
 export function garrisonAt(board: Board, vertexId: string): number {
-  return board.vertices[vertexId]?.building?.soldiers ?? 0;
+  return board.vertices[vertexId]?.building?.garrison?.length ?? 0;
 }
 
 /** Total soldiers a player has across all their buildings. */
 export function totalArmy(board: Board, playerId: string): number {
   let n = 0;
   for (const v of Object.values(board.vertices)) {
-    if (v.building?.owner === playerId) n += v.building.soldiers ?? 0;
+    if (v.building?.owner === playerId) n += v.building.garrison?.length ?? 0;
   }
   return n;
 }
@@ -232,7 +232,7 @@ export function ralliedArmy(board: Board, playerId: string, start: string): numb
   let n = 0;
   for (const v of reachableVertices(board, playerId, start)) {
     const b = board.vertices[v].building;
-    if (b?.owner === playerId) n += b.soldiers ?? 0;
+    if (b?.owner === playerId) n += b.garrison?.length ?? 0;
   }
   return n;
 }

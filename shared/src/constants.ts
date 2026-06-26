@@ -76,6 +76,14 @@ export const ARMY_PER_CITY = 2;
 export const LOSER_CASUALTIES = 2;
 export const WINNER_CASUALTIES = 1;
 
+/** Funny default names for freshly trained soldiers (rename them if you like). */
+export const SOLDIER_NAMES = [
+  'Sir Reginald', 'Greg the Bold', 'Captain Carrot', 'Brave Sir Robin', 'Big Tony',
+  'Dame Gertrude', 'Lil Stabby', 'Sir Loin', 'Hambold the Brave', 'Spear Britney',
+  'Gary', 'The Dread Kevin', 'Chad Ironside', 'Princess Warhammer', 'Old Mceyepatch',
+  'Sir Render', 'Beans', 'Mathilda the Unhinged', 'Two-Sword Steve', 'Knightly McKnightface',
+];
+
 /** Points awarded for the longest-road and largest-army bonuses. */
 export const LONGEST_ROAD_POINTS = 2;
 export const LARGEST_ARMY_POINTS = 2;

@@ -147,6 +147,8 @@ describe('computeLongestRoad', () => {
   });
 });
 
+const garr = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `s${i}`, name: 'X' }));
+
 describe('war connectivity', () => {
   it('rallies soldiers across a connected road network but not across a gap', () => {
     const board = generateBoard({ seed: 8 });
@@ -163,13 +165,13 @@ describe('war connectivity', () => {
       vA = e.vertexIds[0] === vA ? e.vertexIds[1] : e.vertexIds[0];
       chain.push(vA);
     }
-    for (const v of chain) board.vertices[v].building = { type: 'settlement', owner: 'A', soldiers: 2 };
+    for (const v of chain) board.vertices[v].building = { type: 'settlement', owner: 'A', garrison: garr(2) };
 
     // From one end, A rallies all 3 garrisons (connected).
     expect(ralliedArmy(board, 'A', chain[0])).toBe(6);
 
     // An enemy building in the middle severs the network.
-    board.vertices[chain[1]].building = { type: 'settlement', owner: 'B', soldiers: 0 };
+    board.vertices[chain[1]].building = { type: 'settlement', owner: 'B', garrison: garr(0) };
     expect(ralliedArmy(board, 'A', chain[0])).toBe(2); // only the start end remains
   });
 
@@ -178,7 +180,7 @@ describe('war connectivity', () => {
     const edge = Object.values(board.edges)[0];
     const [u, w] = edge.vertexIds;
     board.edges[edge.id].road = 'A';
-    board.vertices[w].building = { type: 'settlement', owner: 'B', soldiers: 1 };
+    board.vertices[w].building = { type: 'settlement', owner: 'B', garrison: garr(1) };
     expect(canDeclareWarOn(board, 'A', w)).toBe(true); // A's road reaches B's settlement
     expect(canDeclareWarOn(board, 'A', u)).toBe(false); // empty vertex, no enemy building
     board.vertices[u].building = { type: 'settlement', owner: 'A' };

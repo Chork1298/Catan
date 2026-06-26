@@ -32,10 +32,14 @@ export type Action =
   | { type: 'finalizeTrade'; tradeId: string; withPlayerId: string }
   | { type: 'cancelTrade' }
   // war
-  | { type: 'trainSoldier'; vertexId: string }
+  | { type: 'trainSoldier'; vertexId: string; name?: string }
   | { type: 'moveSoldiers'; fromVertexId: string; toVertexId: string; count: number }
   | { type: 'declareWar'; targetVertexId: string }
-  | { type: 'respondToWar'; response: 'fight' | 'retreat' }
+  | { type: 'respondToWar'; response: 'fight' | 'retreat' | 'peace'; tribute?: ResourceBag }
+  | { type: 'respondToPeace'; accept: boolean }
+  // roleplay naming
+  | { type: 'nameBuilding'; vertexId: string; name: string }
+  | { type: 'renameSoldier'; vertexId: string; soldierId: string; name: string }
   // robber / discard
   | { type: 'discard'; resources: ResourceBag }
   | { type: 'moveRobber'; tileId: string; stealFromPlayerId: string | null };

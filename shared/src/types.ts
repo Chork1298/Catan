@@ -46,11 +46,19 @@ export interface Tile {
 
 export type BuildingType = 'settlement' | 'city';
 
+/** A single (nameable) soldier, for roleplaying flavor. Combat uses counts. */
+export interface Soldier {
+  id: string;
+  name: string;
+}
+
 export interface Building {
   type: BuildingType;
   owner: string; // player id
-  /** Soldiers garrisoned here (war layer). Absent = 0. */
-  soldiers?: number;
+  /** Optional player-given name for roleplaying (e.g. "Castle Greg"). */
+  name?: string;
+  /** Soldiers garrisoned here (war layer). Absent/empty = none. */
+  garrison?: Soldier[];
 }
 
 /** A board corner where settlements/cities go. */
@@ -150,6 +158,10 @@ export interface PendingWar {
   /** Rallied strengths computed at declaration (for display). */
   attackerArmy: number;
   defenderArmy: number;
+  /** Whose input the war is waiting on. */
+  awaiting: 'defender' | 'attacker';
+  /** A peace tribute the defender has offered, awaiting the attacker's call. */
+  peaceOffer?: ResourceBag;
 }
 
 /** A pending trade offer from one player to others. */

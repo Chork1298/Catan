@@ -815,6 +815,31 @@ button.trade-row,
   text-align: right;
 }
 
+/* Building inspector (naming) */
+.soldier-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.3rem 0;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.soldier-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.2rem 0;
+}
+
+.soldier-row input {
+  margin: 0;
+  flex: 1;
+}
+
+.peace-builder {
+  margin-top: 0.5rem;
+}
+
 /* Control separator between build and war buttons */
 .ctrl-sep {
   width: 1px;
