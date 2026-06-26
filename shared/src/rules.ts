@@ -109,6 +109,29 @@ export function countRoads(board: Board, playerId: string): number {
   return n;
 }
 
+/**
+ * Count the pieces from a player's fixed pool that are currently "spent": ones
+ * they PLACED and STILL OWN. Pieces captured *from* them free their pool (lost),
+ * and pieces they captured don't count (not from their pool). Drives piece limits
+ * and the Inventory panel.
+ */
+export function countPlaced(board: Board, playerId: string): { settlements: number; cities: number; roads: number } {
+  let settlements = 0;
+  let cities = 0;
+  let roads = 0;
+  for (const v of Object.values(board.vertices)) {
+    const b = v.building;
+    if (b && b.owner === playerId && (b.placedBy === undefined || b.placedBy === playerId)) {
+      if (b.type === 'settlement') settlements++;
+      else cities++;
+    }
+  }
+  for (const e of Object.values(board.edges)) {
+    if (e.road === playerId && (e.placedBy === undefined || e.placedBy === playerId)) roads++;
+  }
+  return { settlements, cities, roads };
+}
+
 // ----- Trading -----
 
 /** Best bank/port exchange rate for giving away a resource (4:1, 3:1, or 2:1). */

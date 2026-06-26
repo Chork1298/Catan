@@ -2,6 +2,8 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   canPlaceSetupRoad,
   canPlaceSetupSettlement,
+  countBuildings,
+  countPlaced,
   PLAYER_COLORS,
   type GameState,
 } from '@catan/shared';
@@ -315,6 +317,16 @@ describe('war', () => {
     expect(mine.building!.type).toBe('city');
     expect(mine.building!.garrison!.length).toBe(2);
     expect(mine.building!.name).toBe('Fort Greg');
+  });
+
+  it('captured pieces do not count toward your placed-piece pool', () => {
+    const game = startedGame();
+    const v = Object.values(game.board.vertices).find((x) => !x.building)!;
+    // A captured B's settlement: A owns it, but B originally placed it.
+    game.board.vertices[v.id].building = { type: 'settlement', owner: 'A', placedBy: 'B' };
+    const aPlaced = countPlaced(game.board, 'A').settlements;
+    const aOwned = countBuildings(game.board, 'A').settlements;
+    expect(aOwned).toBeGreaterThan(aPlaced); // owns more than it placed (the captured one)
   });
 
   it('a player can decline a trade offer', () => {

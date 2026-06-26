@@ -27,7 +27,7 @@ import {
   canPlaceSetupSettlement,
   computeLongestRoad,
   countBuildings,
-  countRoads,
+  countPlaced,
   distributeForRoll,
   playersOnTile,
   subtractBag,
@@ -414,7 +414,7 @@ function placeSetupSettlement(game: GameState, playerId: string, vertexId: strin
     return { ok: false, error: 'Illegal settlement spot', logs: [] };
 
   const player = currentPlayer(game);
-  game.board.vertices[vertexId].building = { type: 'settlement', owner: playerId };
+  game.board.vertices[vertexId].building = { type: 'settlement', owner: playerId, placedBy: playerId };
   const logs = [`${player.name} placed a settlement.`];
 
   // The second settlement (round 2) yields starting resources.
@@ -445,6 +445,7 @@ function placeSetupRoad(game: GameState, playerId: string, edgeId: string): Appl
 
   const player = currentPlayer(game);
   game.board.edges[edgeId].road = playerId;
+  game.board.edges[edgeId].placedBy = playerId;
   const logs = [`${player.name} placed a road.`];
 
   game.setupStep = 'settlement';
@@ -533,7 +534,7 @@ function buildRoad(game: GameState, playerId: string, edgeId: string): ApplyResu
   const blocked = ensureBuildPhase(game, playerId);
   if (blocked) return { ok: false, error: blocked, logs: [] };
   const player = currentPlayer(game);
-  if (countRoads(game.board, playerId) >= PIECE_LIMITS.roads)
+  if (countPlaced(game.board, playerId).roads >= PIECE_LIMITS.roads)
     return { ok: false, error: 'No roads left', logs: [] };
   if (!canAfford(player.resources, COSTS.road)) return { ok: false, error: 'Cannot afford a road', logs: [] };
   if (!canBuildRoadAt(game.board, edgeId, playerId))
@@ -541,6 +542,7 @@ function buildRoad(game: GameState, playerId: string, edgeId: string): ApplyResu
 
   spend(game, player, COSTS.road);
   game.board.edges[edgeId].road = playerId;
+  game.board.edges[edgeId].placedBy = playerId;
   return { ok: true, logs: [`${player.name} built a road.`] };
 }
 
@@ -548,7 +550,7 @@ function buildSettlement(game: GameState, playerId: string, vertexId: string): A
   const blocked = ensureBuildPhase(game, playerId);
   if (blocked) return { ok: false, error: blocked, logs: [] };
   const player = currentPlayer(game);
-  if (countBuildings(game.board, playerId).settlements >= PIECE_LIMITS.settlements)
+  if (countPlaced(game.board, playerId).settlements >= PIECE_LIMITS.settlements)
     return { ok: false, error: 'No settlements left', logs: [] };
   if (!canAfford(player.resources, COSTS.settlement))
     return { ok: false, error: 'Cannot afford a settlement', logs: [] };
@@ -556,7 +558,7 @@ function buildSettlement(game: GameState, playerId: string, vertexId: string): A
     return { ok: false, error: 'Illegal settlement location', logs: [] };
 
   spend(game, player, COSTS.settlement);
-  game.board.vertices[vertexId].building = { type: 'settlement', owner: playerId };
+  game.board.vertices[vertexId].building = { type: 'settlement', owner: playerId, placedBy: playerId };
   return { ok: true, logs: [`${player.name} built a settlement.`] };
 }
 
@@ -564,7 +566,7 @@ function buildCity(game: GameState, playerId: string, vertexId: string): ApplyRe
   const blocked = ensureBuildPhase(game, playerId);
   if (blocked) return { ok: false, error: blocked, logs: [] };
   const player = currentPlayer(game);
-  if (countBuildings(game.board, playerId).cities >= PIECE_LIMITS.cities)
+  if (countPlaced(game.board, playerId).cities >= PIECE_LIMITS.cities)
     return { ok: false, error: 'No cities left', logs: [] };
   if (!canAfford(player.resources, COSTS.city)) return { ok: false, error: 'Cannot afford a city', logs: [] };
   if (!canBuildCityAt(game.board, vertexId, playerId))
@@ -910,7 +912,15 @@ function removeArmy(game: GameState, playerId: string, seed: string, count: numb
 
 function captureBuilding(game: GameState, targetVertexId: string, attackerId: string): void {
   const b = game.board.vertices[targetVertexId].building!;
-  game.board.vertices[targetVertexId].building = { type: b.type, owner: attackerId, garrison: [], name: b.name };
+  // Keep the original placer so the capture doesn't count toward the captor's
+  // pool, and the loser's pool is freed (they no longer own it).
+  game.board.vertices[targetVertexId].building = {
+    type: b.type,
+    owner: attackerId,
+    garrison: [],
+    name: b.name,
+    placedBy: b.placedBy ?? b.owner,
+  };
 }
 
 function respondToWar(game: GameState, playerId: string, response: 'fight' | 'retreat' | 'peace', tribute?: ResourceBag): ApplyResult {
@@ -1067,15 +1077,16 @@ function playRoadBuilding(game: GameState, playerId: string, edgeIds: string[]):
   const ids = edgeIds.slice(0, 2);
   // Validate sequentially: placing the first road may legalize the second.
   for (const eId of ids) {
-    if (countRoads(game.board, playerId) >= PIECE_LIMITS.roads)
+    if (countPlaced(game.board, playerId).roads >= PIECE_LIMITS.roads)
       return { ok: false, error: 'No roads left', logs: [] };
     if (!canBuildRoadAt(game.board, eId, playerId))
       return { ok: false, error: 'Illegal road location', logs: [] };
     game.board.edges[eId].road = playerId;
+    game.board.edges[eId].placedBy = playerId;
   }
   if (!takePlayableCard(game, player, 'roadBuilding')) {
     // Roll back placed roads if the card wasn't actually playable.
-    for (const eId of ids) game.board.edges[eId].road = null;
+    for (const eId of ids) { game.board.edges[eId].road = null; game.board.edges[eId].placedBy = undefined; }
     return { ok: false, error: 'No playable Road Building card', logs: [] };
   }
   game.hasPlayedDevCardThisTurn = true;

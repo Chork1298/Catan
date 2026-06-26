@@ -55,6 +55,8 @@ export interface Soldier {
 export interface Building {
   type: BuildingType;
   owner: string; // player id
+  /** Who originally placed it (unchanged on capture) — for the "placed" piece pool. */
+  placedBy?: string;
   /** Optional player-given name for roleplaying (e.g. "Castle Greg"). */
   name?: string;
   /** Soldiers garrisoned here (war layer). Absent/empty = none. */
@@ -77,6 +79,8 @@ export interface Edge {
   id: string;
   vertexIds: [string, string];
   road: string | null; // owning player id, or null
+  /** Who originally built the road here (unchanged on capture/claim). */
+  placedBy?: string;
 }
 
 export type PortType = 'generic' | ResourceType; // generic = 3:1, resource = 2:1
