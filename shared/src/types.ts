@@ -191,6 +191,8 @@ export interface TradeOffer {
   acceptedBy: string[];
   /** Counter-offers from other players the proposer may accept instead. */
   counters: CounterOffer[];
+  /** Player ids who declined the offer (hides it for them). */
+  declinedBy: string[];
 }
 
 export interface GameState {

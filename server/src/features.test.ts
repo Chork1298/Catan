@@ -303,6 +303,33 @@ describe('war', () => {
     expect(a.resources.wheat).toBe(aWheat0 + 2);
   });
 
+  it('upgrading a settlement to a city keeps its garrison and name', () => {
+    const game = startedGame();
+    const mine = Object.values(game.board.vertices).find((v) => v.building?.owner === 'A' && v.building.type === 'settlement')!;
+    mine.building!.garrison = garr(2);
+    mine.building!.name = 'Fort Greg';
+    const a = game.players.find((p) => p.id === 'A')!;
+    a.resources = { brick: 0, wood: 0, sheep: 0, wheat: 2, ore: 3 };
+    const res = applyAction(game, 'A', { type: 'buildCity', vertexId: mine.id });
+    expect(res.ok).toBe(true);
+    expect(mine.building!.type).toBe('city');
+    expect(mine.building!.garrison!.length).toBe(2);
+    expect(mine.building!.name).toBe('Fort Greg');
+  });
+
+  it('a player can decline a trade offer', () => {
+    const game = startedGame();
+    game.players[0].resources = { brick: 0, wood: 1, sheep: 0, wheat: 0, ore: 0 };
+    applyAction(game, 'A', {
+      type: 'proposeTrade',
+      give: { brick: 0, wood: 1, sheep: 0, wheat: 0, ore: 0 },
+      receive: { brick: 0, wood: 0, sheep: 0, wheat: 0, ore: 1 },
+    });
+    const tradeId = game.pendingTrade!.id;
+    expect(applyAction(game, 'B', { type: 'declineTrade', tradeId }).ok).toBe(true);
+    expect(game.pendingTrade!.declinedBy).toContain('B');
+  });
+
   it('rename a soldier and name a building', () => {
     const game = startedGame();
     const mine = Object.values(game.board.vertices).find((v) => v.building?.owner === 'A')!;

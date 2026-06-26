@@ -364,6 +364,7 @@ export function GameView({ view, logs, announcements, onAction, onLeave }: GameV
             youId={youId}
             myResources={me.resources}
             onAccept={() => onAction({ type: 'acceptTrade', tradeId: game.pendingTrade!.id })}
+            onDecline={() => onAction({ type: 'declineTrade', tradeId: game.pendingTrade!.id })}
             onCounter={(give, receive) => onAction({ type: 'counterTrade', tradeId: game.pendingTrade!.id, give, receive })}
             onFinalize={(withId) => onAction({ type: 'finalizeTrade', tradeId: game.pendingTrade!.id, withPlayerId: withId })}
             onCancel={() => onAction({ type: 'cancelTrade' })}

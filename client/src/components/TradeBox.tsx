@@ -30,6 +30,7 @@ export interface TradeBoxProps {
   youId: string;
   myResources: ResourceBag;
   onAccept: () => void;
+  onDecline: () => void;
   onCounter: (give: ResourceBag, receive: ResourceBag) => void;
   onFinalize: (withPlayerId: string) => void;
   onCancel: () => void;
@@ -37,11 +38,12 @@ export interface TradeBoxProps {
 
 // The active trade offer, shown to everyone. The proposer sees accepters and
 // counter-offers and picks one; others can Accept or send a Counter.
-export function TradeBox({ trade, players, youId, myResources, onAccept, onCounter, onFinalize, onCancel }: TradeBoxProps) {
+export function TradeBox({ trade, players, youId, myResources, onAccept, onDecline, onCounter, onFinalize, onCancel }: TradeBoxProps) {
   const proposer = players.find((p) => p.id === trade.from);
   const isProposer = trade.from === youId;
   const iCanAffordOriginal = RESOURCE_TYPES.every((r) => myResources[r] >= trade.receive[r]);
   const iAccepted = trade.acceptedBy.includes(youId);
+  const iDeclined = trade.declinedBy.includes(youId);
   const myCounter = trade.counters.find((c) => c.from === youId);
 
   const [building, setBuilding] = useState(false);
@@ -79,10 +81,14 @@ export function TradeBox({ trade, players, youId, myResources, onAccept, onCount
       ) : (
         <div className="offer-actions">
           {iAccepted && <span className="muted small">You accepted — waiting…</span>}
-          {!iAccepted && (
-            <button className="mini" disabled={!iCanAffordOriginal} onClick={onAccept}>
-              {iCanAffordOriginal ? 'Accept' : "Can't afford"}
-            </button>
+          {iDeclined && !iAccepted && <span className="muted small">You declined.</span>}
+          {!iAccepted && !iDeclined && (
+            <>
+              <button className="mini" disabled={!iCanAffordOriginal} onClick={onAccept}>
+                {iCanAffordOriginal ? 'Accept' : "Can't afford"}
+              </button>
+              <button className="mini link-button" onClick={onDecline}>Deny</button>
+            </>
           )}
           {myCounter ? (
             <span className="muted small">Your counter: give {bagText(myCounter.give)} for {bagText(myCounter.receive)}</span>

@@ -279,6 +279,8 @@ function dispatch(game: GameState, playerId: string, action: Action): ApplyResul
       return proposeTrade(game, playerId, action.give, action.receive);
     case 'acceptTrade':
       return acceptTrade(game, playerId, action.tradeId);
+    case 'declineTrade':
+      return declineTrade(game, playerId, action.tradeId);
     case 'counterTrade':
       return counterTrade(game, playerId, action.give, action.receive);
     case 'finalizeTrade':
@@ -569,8 +571,10 @@ function buildCity(game: GameState, playerId: string, vertexId: string): ApplyRe
     return { ok: false, error: 'Must upgrade your own settlement', logs: [] };
 
   spend(game, player, COSTS.city);
-  game.board.vertices[vertexId].building = { type: 'city', owner: playerId };
-  return { ok: true, logs: [`${player.name} upgraded to a city.`] };
+  // Upgrading keeps the garrison, the holding's name, and the original placer.
+  const prev = game.board.vertices[vertexId].building!;
+  prev.type = 'city';
+  return { ok: true, logs: [`${player.name} upgraded ${prev.name ?? 'a settlement'} to a city.`] };
 }
 
 function endTurn(game: GameState, playerId: string): ApplyResult {
@@ -714,7 +718,7 @@ function proposeTrade(game: GameState, playerId: string, rawGive: ResourceBag, r
   if (!canAfford(player.resources, give))
     return { ok: false, error: "You don't have what you offered", logs: [] };
 
-  game.pendingTrade = { id: `trade${++tradeCounter}`, from: playerId, give, receive, acceptedBy: [], counters: [] };
+  game.pendingTrade = { id: `trade${++tradeCounter}`, from: playerId, give, receive, acceptedBy: [], counters: [], declinedBy: [] };
   return { ok: true, logs: [`${player.name} offers ${describeBag(give)} for ${describeBag(receive)}.`] };
 }
 
@@ -748,7 +752,17 @@ function acceptTrade(game: GameState, playerId: string, tradeId: string): ApplyR
   if (!canAfford(player.resources, trade.receive))
     return { ok: false, error: "You don't have what they want", logs: [] };
   if (!trade.acceptedBy.includes(playerId)) trade.acceptedBy.push(playerId);
+  trade.declinedBy = trade.declinedBy.filter((id) => id !== playerId);
   return { ok: true, logs: [`${player.name} will accept the trade.`] };
+}
+
+function declineTrade(game: GameState, playerId: string, tradeId: string): ApplyResult {
+  const trade = game.pendingTrade;
+  if (!trade || trade.id !== tradeId) return { ok: false, error: 'No such trade', logs: [] };
+  if (trade.from === playerId) return { ok: false, error: 'Cancel your own offer instead', logs: [] };
+  trade.acceptedBy = trade.acceptedBy.filter((id) => id !== playerId);
+  if (!trade.declinedBy.includes(playerId)) trade.declinedBy.push(playerId);
+  return { ok: true, logs: [`${nameOf(game, playerId)} declined the trade.`] };
 }
 
 function finalizeTrade(game: GameState, playerId: string, tradeId: string, withPlayerId: string): ApplyResult {
@@ -772,7 +786,10 @@ function finalizeTrade(game: GameState, playerId: string, tradeId: string, withP
   proposer.resources = addBag(subtractBag(proposer.resources, proposerGives), proposerGets);
   partner.resources = addBag(subtractBag(partner.resources, proposerGets), proposerGives);
   game.pendingTrade = null;
-  return { ok: true, logs: [`${proposer.name} traded with ${partner.name}.`] };
+  return {
+    ok: true,
+    logs: [`${proposer.name} gave ${describeBag(proposerGives)} to ${partner.name} for ${describeBag(proposerGets)}.`],
+  };
 }
 
 function cancelTrade(game: GameState, playerId: string): ApplyResult {
@@ -844,8 +861,10 @@ function renameSoldier(game: GameState, playerId: string, vertexId: string, sold
   if (b?.owner !== playerId) return { ok: false, error: 'Not your building', logs: [] };
   const s = b.garrison?.find((x) => x.id === soldierId);
   if (!s) return { ok: false, error: 'No such soldier', logs: [] };
-  s.name = name.trim().slice(0, 24) || s.name;
-  return { ok: true, logs: [] };
+  const newName = name.trim().slice(0, 24);
+  if (!newName) return { ok: false, error: 'Name cannot be empty', logs: [] };
+  s.name = newName;
+  return { ok: true, logs: [`${nameOf(game, playerId)} renamed a soldier to "${newName}".`] };
 }
 
 function defenseBonus(game: GameState, targetVertexId: string): number {
