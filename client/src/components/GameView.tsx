@@ -39,8 +39,7 @@ import { DiceRoll } from './DiceRoll.js';
 import { DiceOverlay } from './DiceOverlay.js';
 import { TurnBanner } from './TurnBanner.js';
 import { BuildingInspector } from './BuildingInspector.js';
-import { playDing } from '../sound.js';
-import { WarMusic } from './WarMusic.js';
+import { playDing, startWarRiff, stopWarRiff } from '../sound.js';
 
 export interface GameViewProps {
   view: PlayerView;
@@ -100,7 +99,9 @@ export function GameView({ view, logs, announcements, onAction, onLeave }: GameV
   const [moveCount, setMoveCount] = useState(1);
   const [inspectVertex, setInspectVertex] = useState<string | null>(null); // building inspector (naming)
   const [peaceTribute, setPeaceTribute] = useState<ResourceBag | null>(null); // defender's peace builder
-  const [muted, setMuted] = useState(true); // unmute via the 🔊 button (browser autoplay rule)
+  const [muted, setMuted] = useState(false);
+  const warAudioRef = useRef<HTMLAudioElement>(null);
+  const audioFailed = useRef(false);
 
   const me = game.players.find((p) => p.id === youId)!;
   const current = game.players[game.currentPlayerIndex];
@@ -153,6 +154,21 @@ export function GameView({ view, logs, announcements, onAction, onLeave }: GameV
   }, []);
   const warSecs = game.warEndsAt ? Math.max(0, Math.ceil((game.warEndsAt - now) / 1000)) : null;
   const turnSecs = game.turnEndsAt ? Math.max(0, Math.ceil((game.turnEndsAt - now) / 1000)) : null;
+
+  // Heavy metal during war: play the bundled mp3, or a synth riff if it's absent
+  // (e.g. on the public deploy where the copyrighted track isn't shipped).
+  useEffect(() => {
+    const atWar = !!game.pendingWar;
+    const a = warAudioRef.current;
+    if (atWar && !muted) {
+      if (a && !audioFailed.current) a.play().catch(() => { audioFailed.current = true; startWarRiff(); });
+      else startWarRiff();
+    } else {
+      if (a) a.pause();
+      stopWarRiff();
+    }
+    return () => stopWarRiff();
+  }, [game.pendingWar, muted]);
 
   // Auto-scroll the log to the newest message.
   const logRef = useRef<HTMLDivElement>(null);
@@ -313,7 +329,7 @@ export function GameView({ view, logs, announcements, onAction, onLeave }: GameV
 
   return (
     <div className="game-grid">
-      <WarMusic atWar={!!game.pendingWar} muted={muted} />
+      <audio ref={warAudioRef} src="/war-metal.mp3" loop preload="none" onError={() => { audioFailed.current = true; }} />
       <TurnBanner show={showTurnBanner && isMyTurn} />
       {diceOverlay && <DiceOverlay key={diceOverlay.key} die1={diceOverlay.die1} die2={diceOverlay.die2} onDone={() => setDiceOverlay(null)} />}
       <div className="announce-stack">

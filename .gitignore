@@ -8,3 +8,7 @@ dist/
 client/dist/
 server/dist/
 shared/dist/
+
+# Audio (kept out of the public repo — copyrighted / not for redistribution)
+client/public/war-metal.mp3
+*.mp3

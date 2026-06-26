@@ -1,12 +1,11 @@
 # Static assets
 
-**War music is now played via an embedded YouTube player** (`client/src/components/WarMusic.tsx`)
-using the official YouTube embed — no audio is downloaded or bundled (that would
-violate copyright + YouTube's Terms of Service). It starts when a war begins and
-stops when it ends; the 🔊/🔇 button in the in-game header unmutes/mutes it
-(browsers require the first unmute to come from a click).
+**War music** plays from `client/public/war-metal.mp3` during a war (looping),
+with the 🔊/🔇 toggle in the in-game header. If that file is absent, the game
+falls back to a synthesized power-chord riff (`startWarRiff` in `client/src/sound.ts`),
+so war music still works on the public deploy.
 
-To use a different song, change `VIDEO_ID` in `WarMusic.tsx`.
-
-If you'd rather self-host a royalty-free / CC0 loop instead of YouTube, drop a
-`war-metal.ogg` here and swap `WarMusic` back to an `<audio src="/war-metal.ogg" loop>`.
+`war-metal.mp3` is **git-ignored on purpose** — only ship a track here that you
+have the rights to redistribute (your own music or a CC0 / royalty-free loop).
+Copyrighted tracks can stay local for personal play but must not be committed to
+a public repo.
