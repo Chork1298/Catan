@@ -14,6 +14,7 @@ import {
   bagTotal,
   bankTradeRate,
   canAfford,
+  claimableRoads,
   garrisonAt,
   reachableVertices,
   sameCluster,
@@ -1050,13 +1051,9 @@ function claimRoad(game: GameState, playerId: string, edgeId: string): ApplyResu
   if (!e?.road) return { ok: false, error: 'No road there', logs: [] };
   if (e.road === playerId) return { ok: false, error: 'That road is already yours', logs: [] };
   const player = currentPlayer(game);
-  if (!player.conqueredFrom?.includes(e.road))
-    return { ok: false, error: 'You can only claim roads of a nation you have conquered', logs: [] };
-  const touches = e.vertexIds.some((v) => {
-    if (game.board.vertices[v].building?.owner === playerId) return true;
-    return game.board.vertices[v].edgeIds.some((id) => id !== edgeId && game.board.edges[id].road === playerId);
-  });
-  if (!touches) return { ok: false, error: 'Must connect to your network', logs: [] };
+  // Only roads reachable from a captured building, blocked by the loser's settlements.
+  if (!claimableRoads(game.board, playerId).has(edgeId))
+    return { ok: false, error: 'Blocked — capture the settlement in the way to reach this road', logs: [] };
   if (!canAfford(player.resources, CLAIM_ROAD_COST)) return { ok: false, error: 'Need 1 brick', logs: [] };
 
   spend(game, player, CLAIM_ROAD_COST);

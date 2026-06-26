@@ -3,6 +3,7 @@ import {
   armyCap,
   attackTargets,
   canAfford,
+  claimableRoads,
   canBuildCityAt,
   canBuildRoadAt,
   canBuildSettlementAt,
@@ -222,15 +223,7 @@ export function GameView({ view, logs, announcements, onAction, onLeave }: GameV
     } else if (mode === 'rename') {
       for (const v of Object.values(b.vertices)) if (v.building?.owner === youId) verts.add(v.id);
     } else if (mode === 'claimroad') {
-      const conquered = new Set(me.conqueredFrom ?? []);
-      for (const e of Object.values(b.edges)) {
-        if (!e.road || !conquered.has(e.road)) continue;
-        const touches = e.vertexIds.some((v) =>
-          b.vertices[v].building?.owner === youId ||
-          b.vertices[v].edgeIds.some((id) => id !== e.id && b.edges[id].road === youId)
-        );
-        if (touches) edges.add(e.id);
-      }
+      for (const id of claimableRoads(b, youId)) edges.add(id);
     }
     return { highlightVertices: verts, highlightEdges: edges };
   }, [game.board, game.lastSetupVertex, mode, devRoad, moveSource, isMyTurn, youId, canTrain]);

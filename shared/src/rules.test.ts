@@ -6,6 +6,7 @@ import {
   canBuildRoadAt,
   canDeclareWarOn,
   canPlaceSetupSettlement,
+  claimableRoads,
   computeLongestRoad,
   distributeForRoll,
   ralliedArmy,
@@ -174,6 +175,31 @@ describe('war connectivity', () => {
     // An enemy building in the middle severs the network.
     board.vertices[chain[1]].building = { type: 'settlement', owner: 'B', garrison: garr(0) };
     expect(ralliedArmy(board, 'A', chain[0])).toBe(2); // only the start end remains
+  });
+
+  it('claimable roads stop at the loser\'s remaining settlements', () => {
+    const board = generateBoard({ seed: 11 });
+    let v = Object.values(board.vertices).find((x) => x.edgeIds.length >= 2)!.id;
+    const usedEdges = new Set<string>();
+    const chain = [v];
+    const roadIds: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const next = board.vertices[v].edgeIds.find((e) => !usedEdges.has(e));
+      if (!next) break;
+      board.edges[next].road = 'D';
+      usedEdges.add(next);
+      roadIds.push(next);
+      const e = board.edges[next];
+      v = e.vertexIds[0] === v ? e.vertexIds[1] : e.vertexIds[0];
+      chain.push(v);
+    }
+    board.vertices[chain[0]].building = { type: 'settlement', owner: 'A', placedBy: 'D' }; // captured
+    board.vertices[chain[2]].building = { type: 'settlement', owner: 'D', placedBy: 'D' }; // still D's — a wall
+
+    const claim = claimableRoads(board, 'A');
+    expect(claim.has(roadIds[0])).toBe(true); // road off the captured building
+    expect(claim.has(roadIds[1])).toBe(true); // up to D's settlement
+    expect(claim.has(roadIds[2])).toBe(false); // beyond it — blocked until you capture it
   });
 
   it('lets you attack a road-reachable enemy building from a staging settlement', () => {

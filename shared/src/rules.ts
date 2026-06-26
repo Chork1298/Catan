@@ -321,6 +321,40 @@ export function sameCluster(board: Board, playerId: string, a: string, b: string
   return reachableVertices(board, playerId, a).has(b);
 }
 
+/**
+ * Roads a player may claim after a conquest. Claiming spreads outward from each
+ * building they captured, along that defeated nation's roads — but is BLOCKED by
+ * any building the captor doesn't own (the loser's other settlements). To claim
+ * roads beyond one, you must capture that settlement too.
+ */
+export function claimableRoads(board: Board, attackerId: string): Set<string> {
+  const claimable = new Set<string>();
+  for (const start of Object.values(board.vertices)) {
+    const b = start.building;
+    // A building captured from someone (you own it, but they placed it).
+    if (!b || b.owner !== attackerId || !b.placedBy || b.placedBy === attackerId) continue;
+    const enemy = b.placedBy;
+    const visited = new Set<string>([start.id]);
+    const stack = [start.id];
+    while (stack.length) {
+      const u = stack.pop()!;
+      // Can't push past a vertex held by anyone other than the captor.
+      if (u !== start.id) {
+        const ub = board.vertices[u].building;
+        if (ub && ub.owner !== attackerId) continue;
+      }
+      for (const eId of board.vertices[u].edgeIds) {
+        const e = board.edges[eId];
+        if (e.road !== enemy) continue; // only that nation's roads
+        claimable.add(eId);
+        const w = e.vertexIds[0] === u ? e.vertexIds[1] : e.vertexIds[0];
+        if (!visited.has(w)) { visited.add(w); stack.push(w); }
+      }
+    }
+  }
+  return claimable;
+}
+
 /** Total points used for the win check (public points + hidden VP dev cards). */
 export function totalVictoryPoints(player: Player): number {
   const vpCards = player.devCards.filter((c) => c.type === 'victoryPoint').length;
