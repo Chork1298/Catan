@@ -25,6 +25,7 @@ export function App() {
           view={view}
           onSetColor={(color) => sendAction({ type: 'setColor', color })}
           onSetTarget={(points) => sendAction({ type: 'setTargetPoints', points })}
+          onSetMapSize={(radius) => sendAction({ type: 'setMapSize', radius })}
           onStart={() => sendAction({ type: 'startGame' })}
           onLeave={leave}
         />

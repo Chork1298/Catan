@@ -112,6 +112,7 @@ export function createInitialGame(roomCode: string, host: Player): GameState {
     winnerId: null,
     targetPoints: WINNING_POINTS,
     turnEndsAt: null,
+    mapRadius: 2,
   };
 }
 
@@ -233,6 +234,8 @@ function dispatch(game: GameState, playerId: string, action: Action): ApplyResul
       return setColor(game, playerId, action.color);
     case 'setTargetPoints':
       return setTargetPoints(game, playerId, action.points);
+    case 'setMapSize':
+      return setMapSize(game, playerId, action.radius);
     case 'startGame':
       return startGame(game, playerId);
     case 'placeSetupSettlement':
@@ -862,6 +865,16 @@ function setColor(game: GameState, playerId: string, color: PlayerColor): ApplyR
   return { ok: true, logs: [`${player.name} chose ${color}.`] };
 }
 
+function setMapSize(game: GameState, playerId: string, radius: number): ApplyResult {
+  if (game.phase !== 'lobby') return { ok: false, error: 'Can only change the map in the lobby', logs: [] };
+  const host = game.players.find((p) => p.id === playerId);
+  if (!host?.isHost) return { ok: false, error: 'Only the host can change the map', logs: [] };
+  if (![2, 3, 4, 5].includes(radius)) return { ok: false, error: 'Invalid map size', logs: [] };
+  game.mapRadius = radius;
+  const tiles = 1 + 3 * radius * (radius + 1);
+  return { ok: true, logs: [`Map set to ${tiles} tiles.`] };
+}
+
 function setTargetPoints(game: GameState, playerId: string, points: number): ApplyResult {
   if (game.phase !== 'lobby') return { ok: false, error: 'Can only change this in the lobby', logs: [] };
   const host = game.players.find((p) => p.id === playerId);
@@ -881,8 +894,8 @@ function startGame(game: GameState, playerId: string): ApplyResult {
   // Randomize turn order so the host isn't always first.
   shuffleInPlace(game.players);
 
-  // Board scales with the number of players.
-  const radius = boardRadiusForPlayers(game.players.length);
+  // The host picks the map size in the lobby (defaults to the classic 19-tile board).
+  const radius = game.mapRadius || boardRadiusForPlayers(game.players.length);
   game.board = generateBoard({ seed: Math.floor(seededRng() * 1e9), radius });
 
   // Larger boards get a larger bank so resources don't run dry constantly.

@@ -1,18 +1,25 @@
-import { PLAYER_COLORS, boardRadiusForPlayers, type PlayerColor, type PlayerView } from '@catan/shared';
+import { PLAYER_COLORS, type PlayerColor, type PlayerView } from '@catan/shared';
 
+const MAPS: Array<{ radius: number; name: string; rec: string }> = [
+  { radius: 2, name: 'Small', rec: '2–4' },
+  { radius: 3, name: 'Medium', rec: '4–6' },
+  { radius: 4, name: 'Large', rec: '6–8' },
+  { radius: 5, name: 'Huge', rec: '8–10' },
+];
 const tilesForRadius = (r: number) => 1 + 3 * r * (r + 1);
 
 export interface LobbyProps {
   view: PlayerView;
   onSetColor: (color: PlayerColor) => void;
   onSetTarget: (points: number) => void;
+  onSetMapSize: (radius: number) => void;
   onStart: () => void;
   onLeave: () => void;
 }
 
 // Pre-game lobby: room code to share, seated players, a color picker (no two
-// players may share a color), a host-set win target, and the host's Start button.
-export function Lobby({ view, onSetColor, onSetTarget, onStart, onLeave }: LobbyProps) {
+// players may share a color), a host-set win target + map, and the Start button.
+export function Lobby({ view, onSetColor, onSetTarget, onSetMapSize, onStart, onLeave }: LobbyProps) {
   const { game, youId } = view;
   const me = game.players.find((p) => p.id === youId);
   const isHost = !!me?.isHost;
@@ -57,10 +64,24 @@ export function Lobby({ view, onSetColor, onSetTarget, onStart, onLeave }: Lobby
         })}
       </div>
 
-      <p className="muted small">
-        {game.players.length} player(s) → board scales to{' '}
-        <strong>{tilesForRadius(boardRadiusForPlayers(game.players.length))} tiles</strong> at start. Up to 10 players.
-      </p>
+      <div className="map-picker">
+        <span>Map:</span>
+        {MAPS.map((m) => {
+          const selected = game.mapRadius === m.radius;
+          return (
+            <button
+              key={m.radius}
+              className={`map-option ${selected ? 'sel' : ''}`}
+              disabled={!isHost}
+              onClick={() => onSetMapSize(m.radius)}
+              title={`${tilesForRadius(m.radius)} tiles · recommended ${m.rec} players`}
+            >
+              {m.name}
+              <span className="map-meta">{tilesForRadius(m.radius)} tiles · {m.rec}p</span>
+            </button>
+          );
+        })}
+      </div>
 
       <div className="target-row">
         <span>Points to win: <strong>{game.targetPoints}</strong></span>

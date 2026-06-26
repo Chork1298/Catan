@@ -8,6 +8,7 @@ export type Action =
   // lobby
   | { type: 'setColor'; color: PlayerColor }
   | { type: 'setTargetPoints'; points: number }
+  | { type: 'setMapSize'; radius: number }
   | { type: 'startGame' }
   // setup phase
   | { type: 'placeSetupSettlement'; vertexId: string }

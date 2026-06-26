@@ -188,4 +188,6 @@ export interface GameState {
   targetPoints: number;
   /** Epoch ms when the current player's turn auto-ends, or null if no timer. */
   turnEndsAt: number | null;
+  /** Board radius the host chose in the lobby (2=small … 5=huge). */
+  mapRadius: number;
 }
