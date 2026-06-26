@@ -112,9 +112,19 @@ export interface DevCard {
 
 // ----- Players -----
 
+// Chosen to stay distinct from the six tile fills (green wood, light-green sheep,
+// gold wheat, burnt-orange brick, blue-grey ore, tan desert) so pieces stay visible.
 export const PLAYER_COLORS = [
-  'red', 'blue', 'orange', 'white',
-  'green', 'purple', 'deepskyblue', 'magenta', 'gold', 'saddlebrown',
+  '#e53935', // red
+  '#2979ff', // blue
+  '#ffffff', // white
+  '#161616', // black
+  '#d500f9', // magenta
+  '#00e5ff', // cyan
+  '#ff5fa2', // hot pink
+  '#7c4dff', // purple
+  '#001f9e', // navy
+  '#8e0038', // crimson
 ] as const;
 export type PlayerColor = (typeof PLAYER_COLORS)[number];
 

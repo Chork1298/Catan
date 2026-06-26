@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { boardViewBox, hexCorners, type Board as BoardData } from '@catan/shared';
 import { RESOURCE_FILL } from '../colors.js';
 
@@ -21,6 +21,10 @@ export interface BoardProps {
   highlightTiles?: Set<string>;
   /** Player id -> CSS color, for roads and buildings. */
   playerColors?: Record<string, string>;
+  /** Player id -> display name, for hover tooltips. */
+  playerNames?: Record<string, string>;
+  /** Brighten the board when it's the viewer's turn. */
+  active?: boolean;
 }
 
 export function Board({
@@ -32,16 +36,49 @@ export function Board({
   highlightEdges,
   highlightTiles,
   playerColors = {},
+  playerNames = {},
+  active = false,
 }: BoardProps) {
-  const vb = useMemo(() => boardViewBox(board), [board]);
+  const baseVb = useMemo(() => boardViewBox(board), [board]);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const drag = useRef<{ x: number; y: number } | null>(null);
+
+  // Effective viewBox: zoom toward the board center, offset by pan (in board units).
+  const ew = baseVb.w / zoom;
+  const eh = baseVb.h / zoom;
+  const cx = baseVb.x + baseVb.w / 2 + pan.x;
+  const cy = baseVb.y + baseVb.h / 2 + pan.y;
+  const viewBox = `${cx - ew / 2} ${cy - eh / 2} ${ew} ${eh}`;
+
+  const zoomBy = (factor: number) => setZoom((z) => Math.min(3, Math.max(0.6, z * factor)));
+  const onWheel = (e: React.WheelEvent) => zoomBy(e.deltaY < 0 ? 1.12 : 0.89);
+  const onDown = (e: React.MouseEvent) => { drag.current = { x: e.clientX, y: e.clientY }; };
+  const onMove = (e: React.MouseEvent) => {
+    if (!drag.current || !svgRef.current) return;
+    const rect = svgRef.current.getBoundingClientRect();
+    const dx = ((e.clientX - drag.current.x) / rect.width) * ew;
+    const dy = ((e.clientY - drag.current.y) / rect.height) * eh;
+    setPan((p) => ({ x: p.x - dx, y: p.y - dy }));
+    drag.current = { x: e.clientX, y: e.clientY };
+  };
+  const endDrag = () => { drag.current = null; };
 
   return (
+    <div className={`board-wrap ${active ? 'active' : ''}`}>
     <svg
+      ref={svgRef}
       className="board"
-      viewBox={`${vb.x} ${vb.y} ${vb.w} ${vb.h}`}
+      viewBox={viewBox}
       width="100%"
       height="100%"
       preserveAspectRatio="xMidYMid meet"
+      onWheel={onWheel}
+      onMouseDown={onDown}
+      onMouseMove={onMove}
+      onMouseUp={endDrag}
+      onMouseLeave={endDrag}
     >
       {/* Tiles */}
       {Object.values(board.tiles).map((tile) => {
@@ -115,19 +152,22 @@ export function Board({
         const highlighted = highlightEdges?.has(edge.id);
         const color = edge.road ? playerColors[edge.road] ?? '#000' : highlighted ? '#ffd54f' : 'transparent';
         return (
-          <line
-            key={edge.id}
-            x1={pa.x}
-            y1={pa.y}
-            x2={pb.x}
-            y2={pb.y}
-            stroke={color}
-            strokeWidth={edge.road ? 7 : 10}
-            strokeLinecap="round"
-            opacity={edge.road ? 1 : highlighted ? 0.6 : 0}
-            style={{ cursor: onEdgeClick ? 'pointer' : 'default' }}
-            onClick={() => onEdgeClick?.(edge.id)}
-          />
+          <g key={edge.id} style={{ cursor: onEdgeClick ? 'pointer' : 'default' }} onClick={() => onEdgeClick?.(edge.id)}>
+            {/* Dark casing under built roads so any player color reads on any tile. */}
+            {edge.road && (
+              <line x1={pa.x} y1={pa.y} x2={pb.x} y2={pb.y} stroke="#0c1218" strokeWidth={11} strokeLinecap="round" />
+            )}
+            <line
+              x1={pa.x}
+              y1={pa.y}
+              x2={pb.x}
+              y2={pb.y}
+              stroke={color}
+              strokeWidth={edge.road ? 7 : 10}
+              strokeLinecap="round"
+              opacity={edge.road ? 1 : highlighted ? 0.6 : 0}
+            />
+          </g>
         );
       })}
 
@@ -139,7 +179,9 @@ export function Board({
         const r = v.building?.type === 'city' ? 10 : 7;
         return (
           <g key={v.id} onClick={() => onVertexClick?.(v.id)} style={{ cursor: onVertexClick ? 'pointer' : 'default' }}>
-            {v.building?.name && <title>{v.building.name}</title>}
+            {v.building && (
+              <title>{v.building.name ?? `${playerNames?.[v.building.owner] ?? 'A player'}'s ${v.building.type}`}</title>
+            )}
             <circle
               cx={v.position.x}
               cy={v.position.y}
@@ -165,5 +207,11 @@ export function Board({
         );
       })}
     </svg>
+      <div className="zoom-controls">
+        <button onClick={() => zoomBy(1.2)} title="Zoom in">+</button>
+        <button onClick={() => zoomBy(1 / 1.2)} title="Zoom out">−</button>
+        <button onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }} title="Reset view">⟲</button>
+      </div>
+    </div>
   );
 }

@@ -344,6 +344,8 @@ export function GameView({ view, logs, announcements, onAction, onLeave }: GameV
         <Board
           board={game.board}
           playerColors={playerColors}
+          playerNames={Object.fromEntries(game.players.map((p) => [p.id, p.name]))}
+          active={isMyTurn}
           highlightVertices={highlightVertices}
           highlightEdges={highlightEdges}
           highlightTiles={highlightTiles}

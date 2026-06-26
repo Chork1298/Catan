@@ -1,4 +1,4 @@
-import { COSTS, RESOURCE_TYPES, type ResourceBag, type ResourceType } from '@catan/shared';
+import { COSTS, RESOURCE_TYPES, SOLDIER_COST, type ResourceBag, type ResourceType } from '@catan/shared';
 
 const ICON: Record<ResourceType, string> = { brick: '🧱', wood: '🌲', sheep: '🐑', wheat: '🌾', ore: '⛰️' };
 
@@ -13,6 +13,7 @@ export function CostCard() {
     ['Settlement', COSTS.settlement, '1 VP'],
     ['City', COSTS.city, '2 VP'],
     ['Dev card', COSTS.devCard, 'some = 1 VP'],
+    ['Soldier', SOLDIER_COST, 'war'],
   ];
   return (
     <div className="cost-card">

@@ -566,12 +566,47 @@ button.trade-row,
   align-items: center;
 }
 
+.g-board .board-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  max-width: 680px;
+  position: relative;
+  display: flex;
+  background: #25303d;
+  border-radius: 10px;
+  transition: background 0.4s ease, box-shadow 0.4s ease;
+}
+
+.g-board .board-wrap.active {
+  background: #36475a;
+  box-shadow: 0 0 0 2px #ffd54f88, 0 0 24px #ffd54f33;
+}
+
 .g-board .board {
   flex: 1 1 auto;
   min-height: 0;
-  max-width: 640px;
-  background: #25303d;
-  border-radius: 10px;
+  width: 100%;
+  touch-action: none;
+}
+
+.zoom-controls {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.zoom-controls button {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  font-size: 1.1rem;
+  background: #1a232e;
+  border: 1px solid #3a4756;
+  opacity: 0.85;
 }
 
 .g-right {

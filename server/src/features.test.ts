@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   canPlaceSetupRoad,
   canPlaceSetupSettlement,
+  PLAYER_COLORS,
   type GameState,
 } from '@catan/shared';
 import { applyAction, createInitialGame, createPlayer, forceTurnTimeout } from './game.js';
@@ -122,11 +123,13 @@ describe('color selection (lobby)', () => {
     const game = createInitialGame('TEST', host);
     game.players.push(createPlayer('B', 'Bob', false, 1)); // blue (index 1)
 
+    const aColor = game.players.find((p) => p.id === 'A')!.color; // PLAYER_COLORS[0]
+    const free = PLAYER_COLORS.find((c) => c !== aColor && c !== game.players.find((p) => p.id === 'B')!.color)!;
     // Bob cannot take Alice's color.
-    expect(applyAction(game, 'B', { type: 'setColor', color: 'red' }).ok).toBe(false);
+    expect(applyAction(game, 'B', { type: 'setColor', color: aColor }).ok).toBe(false);
     // Bob can take a free color.
-    expect(applyAction(game, 'B', { type: 'setColor', color: 'orange' }).ok).toBe(true);
-    expect(game.players.find((p) => p.id === 'B')!.color).toBe('orange');
+    expect(applyAction(game, 'B', { type: 'setColor', color: free }).ok).toBe(true);
+    expect(game.players.find((p) => p.id === 'B')!.color).toBe(free);
   });
 
   it('cannot change color once the game has started', () => {
@@ -134,7 +137,7 @@ describe('color selection (lobby)', () => {
     const game = createInitialGame('TEST', host);
     game.players.push(createPlayer('B', 'Bob', false, 1));
     applyAction(game, 'A', { type: 'startGame' });
-    expect(applyAction(game, 'A', { type: 'setColor', color: 'white' }).ok).toBe(false);
+    expect(applyAction(game, 'A', { type: 'setColor', color: PLAYER_COLORS[5] }).ok).toBe(false);
   });
 });
 

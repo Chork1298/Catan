@@ -12,11 +12,11 @@ import {
   violatesDistanceRule,
 } from './rules.js';
 import { COSTS } from './constants.js';
-import { emptyBag, type GameState, type Player, type ResourceBag } from './types.js';
+import { emptyBag, PLAYER_COLORS, type GameState, type Player, type ResourceBag } from './types.js';
 
 function makePlayer(id: string): Player {
   return {
-    id, name: id, color: 'red', connected: true, isHost: false,
+    id, name: id, color: PLAYER_COLORS[0], connected: true, isHost: false,
     resources: emptyBag(), devCards: [], playedKnights: 0, publicVictoryPoints: 0,
   };
 }
