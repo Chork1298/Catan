@@ -1,4 +1,6 @@
-import { PLAYER_COLORS, type PlayerColor, type PlayerView } from '@catan/shared';
+import { PLAYER_COLORS, boardRadiusForPlayers, type PlayerColor, type PlayerView } from '@catan/shared';
+
+const tilesForRadius = (r: number) => 1 + 3 * r * (r + 1);
 
 export interface LobbyProps {
   view: PlayerView;
@@ -54,6 +56,11 @@ export function Lobby({ view, onSetColor, onSetTarget, onStart, onLeave }: Lobby
           );
         })}
       </div>
+
+      <p className="muted small">
+        {game.players.length} player(s) → board scales to{' '}
+        <strong>{tilesForRadius(boardRadiusForPlayers(game.players.length))} tiles</strong> at start. Up to 10 players.
+      </p>
 
       <div className="target-row">
         <span>Points to win: <strong>{game.targetPoints}</strong></span>

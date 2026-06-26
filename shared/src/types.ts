@@ -102,7 +102,10 @@ export interface DevCard {
 
 // ----- Players -----
 
-export const PLAYER_COLORS = ['red', 'blue', 'orange', 'white'] as const;
+export const PLAYER_COLORS = [
+  'red', 'blue', 'orange', 'white',
+  'green', 'purple', 'deepskyblue', 'magenta', 'gold', 'saddlebrown',
+] as const;
 export type PlayerColor = (typeof PLAYER_COLORS)[number];
 
 export interface Player {

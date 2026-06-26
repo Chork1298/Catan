@@ -7,7 +7,7 @@
 // the tiles and de-duplicated by geometry: a corner shared by up to three hexes
 // becomes ONE vertex; an edge shared by two hexes becomes ONE edge.
 
-import type { Axial, Board, Edge, Point, Port, Tile, Vertex } from './types.js';
+import type { Axial, Board, Edge, Point, Port, PortType, ResourceType, Tile, TileResource, Vertex } from './types.js';
 import {
   STANDARD_NUMBER_TOKENS,
   STANDARD_PORT_TYPES,
@@ -48,12 +48,12 @@ function axialDistance(q: number, r: number): number {
   return (Math.abs(q) + Math.abs(r) + Math.abs(q + r)) / 2;
 }
 
-/** All 19 axial coordinates within distance 2 of center (the standard board). */
-function standardCoords(): Axial[] {
+/** All axial coordinates within `radius` of center (a hexagon of hexes). */
+function coordsForRadius(radius: number): Axial[] {
   const coords: Axial[] = [];
-  for (let q = -2; q <= 2; q++) {
-    for (let r = -2; r <= 2; r++) {
-      if (axialDistance(q, r) <= 2) coords.push({ q, r });
+  for (let q = -radius; q <= radius; q++) {
+    for (let r = -radius; r <= radius; r++) {
+      if (axialDistance(q, r) <= radius) coords.push({ q, r });
     }
   }
   return coords;
@@ -89,15 +89,79 @@ function edgeKey(a: string, b: string): string {
   return a < b ? `${a}|${b}` : `${b}|${a}`;
 }
 
+// ----- Board sizing for different player counts -----
+
+/** Map a player count to a board radius (ring count). */
+export function boardRadiusForPlayers(players: number): number {
+  if (players <= 4) return 2; // 19 tiles — the classic board
+  if (players <= 6) return 3; // 37 tiles
+  if (players <= 8) return 4; // 61 tiles
+  return 5; // 91 tiles
+}
+
+/** Number of deserts for a given radius. */
+function desertsForRadius(radius: number): number {
+  return { 2: 1, 3: 2, 4: 3, 5: 4 }[radius] ?? 1;
+}
+
+/** Build the tile-resource multiset for a board of `total` tiles and `deserts`. */
+function buildResources(total: number, deserts: number): TileResource[] {
+  const nonDesert = total - deserts;
+  // Base Catan ratio (out of 18 land tiles): 4 wood, 4 sheep, 4 wheat, 3 brick, 3 ore.
+  const weights: Array<[ResourceType, number]> = [
+    ['wood', 4], ['sheep', 4], ['wheat', 4], ['brick', 3], ['ore', 3],
+  ];
+  const out: TileResource[] = [];
+  for (const [res, w] of weights) {
+    const count = Math.round((nonDesert * w) / 18);
+    for (let i = 0; i < count; i++) out.push(res);
+  }
+  // Fix rounding drift to land exactly on nonDesert.
+  let cycle = 0;
+  while (out.length < nonDesert) out.push(weights[cycle++ % weights.length][0]);
+  while (out.length > nonDesert) out.pop();
+  for (let i = 0; i < deserts; i++) out.push('desert');
+  return out;
+}
+
+/** Build the number-token multiset for `count` land tiles (no 7s). */
+function buildNumberTokens(count: number): number[] {
+  // Relative frequencies (sum 18) — 6 and 8 deliberately no more common than 5/9.
+  const weights: Array<[number, number]> = [
+    [2, 1], [3, 2], [4, 2], [5, 2], [6, 2], [8, 2], [9, 2], [10, 2], [11, 2], [12, 1],
+  ];
+  const out: number[] = [];
+  for (const [num, w] of weights) {
+    const n = Math.round((count * w) / 18);
+    for (let i = 0; i < n; i++) out.push(num);
+  }
+  let cycle = 0;
+  const fillers = weights.map(([n]) => n);
+  while (out.length < count) out.push(fillers[cycle++ % fillers.length]);
+  while (out.length > count) out.pop();
+  return out;
+}
+
+/** Build the port-type list (~half generic, one 2:1 of each resource, repeated). */
+function buildPortTypes(count: number): PortType[] {
+  const pattern: PortType[] = ['generic', 'generic', 'generic', 'generic', 'brick', 'wood', 'sheep', 'wheat', 'ore'];
+  const out: PortType[] = [];
+  for (let i = 0; i < count; i++) out.push(pattern[i % pattern.length]);
+  return out;
+}
+
 // ----- Board assembly -----
 
 export interface GenerateOptions {
   seed?: number;
+  /** Board radius (ring count). Default 2 = the classic 19-tile board. */
+  radius?: number;
 }
 
 export function generateBoard(opts: GenerateOptions = {}): Board {
   const rng = makeRng(opts.seed ?? 1);
-  const coords = standardCoords();
+  const radius = opts.radius ?? 2;
+  const coords = coordsForRadius(radius);
 
   const tiles: Record<string, Tile> = {};
   const vertices: Record<string, Vertex> = {};
@@ -106,9 +170,13 @@ export function generateBoard(opts: GenerateOptions = {}): Board {
   const vertexByPoint = new Map<string, string>(); // pointKey -> vertexId
   const edgeByPair = new Map<string, string>(); // edgeKey -> edgeId
 
-  // 1) Resources + number tokens.
-  const resources = shuffle(STANDARD_TILE_RESOURCES, rng);
-  const numbers = shuffle(STANDARD_NUMBER_TOKENS, rng);
+  // 1) Resources + number tokens. Radius 2 uses the exact classic distribution;
+  //    larger boards scale the same ratios up.
+  const deserts = desertsForRadius(radius);
+  const baseResources = radius === 2 ? STANDARD_TILE_RESOURCES : buildResources(coords.length, deserts);
+  const baseNumbers = radius === 2 ? STANDARD_NUMBER_TOKENS : buildNumberTokens(coords.length - deserts);
+  const resources = shuffle(baseResources, rng);
+  const numbers = shuffle(baseNumbers, rng);
   let numberIdx = 0;
 
   // 2) Create tiles, vertices, edges.
@@ -172,8 +240,9 @@ export function generateBoard(opts: GenerateOptions = {}): Board {
   // 4) Robber starts on the desert.
   const desert = Object.values(tiles).find((t) => t.resource === 'desert')!;
 
-  // 5) Ports along the coast.
-  const ports = generatePorts(tiles, vertices, edges, edgeByPair, rng);
+  // 5) Ports along the coast. Density mirrors the classic board (~1 per 3 coast edges).
+  const portTypes = radius === 2 ? STANDARD_PORT_TYPES : buildPortTypes(4 * radius + 2);
+  const ports = generatePorts(tiles, vertices, edges, portTypes, rng);
 
   return {
     tiles,
@@ -193,7 +262,7 @@ function generatePorts(
   tiles: Record<string, Tile>,
   vertices: Record<string, Vertex>,
   edges: Record<string, Edge>,
-  _edgeByPair: Map<string, string>,
+  portTypes: PortType[],
   rng: () => number
 ): Record<string, Port> {
   // A coastal edge touches exactly one tile (i.e. both its vertices are on the
@@ -226,14 +295,14 @@ function generatePorts(
   };
   coastalEdges.sort((e1, e2) => angleOf(e1) - angleOf(e2));
 
-  const portTypes = shuffle(STANDARD_PORT_TYPES, rng);
+  const shuffledPorts = shuffle(portTypes, rng);
   const ports: Record<string, Port> = {};
   const used = new Set<string>(); // vertex ids already adjacent to a port
-  const stride = coastalEdges.length / portTypes.length;
+  const stride = coastalEdges.length / shuffledPorts.length;
 
   let placed = 0;
   let cursor = 0;
-  while (placed < portTypes.length && cursor < coastalEdges.length * 2) {
+  while (placed < shuffledPorts.length && cursor < coastalEdges.length * 2) {
     const edge = coastalEdges[Math.floor((placed * stride + cursor) % coastalEdges.length)];
     const [a, b] = edge.vertexIds;
     if (used.has(a) || used.has(b)) {
@@ -241,7 +310,7 @@ function generatePorts(
       continue;
     }
     const id = `p${placed}`;
-    ports[id] = { id, type: portTypes[placed], vertexIds: [a, b] };
+    ports[id] = { id, type: shuffledPorts[placed], vertexIds: [a, b] };
     vertices[a].portId = id;
     vertices[b].portId = id;
     used.add(a);

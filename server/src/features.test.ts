@@ -26,7 +26,10 @@ function startedGame(): GameState {
       applyAction(game, pid, { type: 'placeSetupRoad', edgeId: e.id });
     }
   }
-  // Put A into the main (post-roll) phase for build/trade tests.
+  // startGame now randomizes turn order; for deterministic tests, put A first as
+  // the current player, then drop into the main (post-roll) phase.
+  game.players.sort((x, y) => (x.id === 'A' ? -1 : y.id === 'A' ? 1 : 0));
+  game.currentPlayerIndex = 0;
   game.hasRolledThisTurn = true;
   game.phase = 'main';
   return game;
@@ -35,6 +38,7 @@ function startedGame(): GameState {
 describe('bank trade', () => {
   it('exchanges at 4:1', () => {
     const game = startedGame();
+    game.board.ports = {}; // no ports -> plain 4:1
     const a = game.players[0];
     a.resources = { brick: 0, wood: 4, sheep: 0, wheat: 0, ore: 0 };
     const res = applyAction(game, 'A', { type: 'bankTrade', give: 'wood', receive: 'ore' });
@@ -45,6 +49,7 @@ describe('bank trade', () => {
 
   it('rejects when short of the rate', () => {
     const game = startedGame();
+    game.board.ports = {}; // no ports -> plain 4:1
     game.players[0].resources = { brick: 0, wood: 3, sheep: 0, wheat: 0, ore: 0 };
     expect(applyAction(game, 'A', { type: 'bankTrade', give: 'wood', receive: 'ore' }).ok).toBe(false);
   });

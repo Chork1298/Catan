@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { generateBoard } from './board.js';
+import { generateBoard, boardRadiusForPlayers } from './board.js';
 import { STANDARD_TILE_RESOURCES } from './constants.js';
 import type { TileResource } from './types.js';
 
@@ -68,5 +68,40 @@ describe('generateBoard', () => {
     expect(Object.values(a.tiles).map((t) => t.resource)).toEqual(
       Object.values(b.tiles).map((t) => t.resource as TileResource)
     );
+  });
+});
+
+describe('larger boards', () => {
+  const cases: Array<[number, number]> = [
+    [3, 37],
+    [4, 61],
+    [5, 91],
+  ];
+  for (const [radius, tiles] of cases) {
+    it(`radius ${radius} produces a legal ${tiles}-tile board`, () => {
+      const b = generateBoard({ seed: 5, radius });
+      expect(Object.keys(b.tiles)).toHaveLength(tiles);
+      expect(b.tiles[b.robberTileId].resource).toBe('desert');
+      for (const t of Object.values(b.tiles)) {
+        if (t.resource === 'desert') expect(t.numberToken).toBeUndefined();
+        else expect(t.numberToken).toBeGreaterThanOrEqual(2);
+      }
+      expect(Object.keys(b.ports).length).toBeGreaterThan(9); // more ports than the small board
+      // No two ports share a vertex.
+      const seen = new Set<string>();
+      for (const p of Object.values(b.ports)) for (const v of p.vertexIds) {
+        expect(seen.has(v)).toBe(false);
+        seen.add(v);
+      }
+    });
+  }
+
+  it('maps player counts to board radii', () => {
+    expect(boardRadiusForPlayers(2)).toBe(2);
+    expect(boardRadiusForPlayers(4)).toBe(2);
+    expect(boardRadiusForPlayers(5)).toBe(3);
+    expect(boardRadiusForPlayers(6)).toBe(3);
+    expect(boardRadiusForPlayers(8)).toBe(4);
+    expect(boardRadiusForPlayers(10)).toBe(5);
   });
 });

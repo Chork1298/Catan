@@ -7,6 +7,7 @@
 import {
   emptyBag,
   generateBoard,
+  boardRadiusForPlayers,
   addBag,
   bagTotal,
   bankTradeRate,
@@ -877,14 +878,30 @@ function startGame(game: GameState, playerId: string): ApplyResult {
   if (game.phase !== 'lobby') return { ok: false, error: 'Game already started', logs: [] };
   if (game.players.length < 2) return { ok: false, error: 'Need at least 2 players', logs: [] };
 
-  game.board = generateBoard({ seed: Math.floor(seededRng() * 1e9) });
+  // Randomize turn order so the host isn't always first.
+  shuffleInPlace(game.players);
+
+  // Board scales with the number of players.
+  const radius = boardRadiusForPlayers(game.players.length);
+  game.board = generateBoard({ seed: Math.floor(seededRng() * 1e9), radius });
+
+  // Larger boards get a larger bank so resources don't run dry constantly.
+  const bankPer = BANK_PER_RESOURCE + (radius - 2) * 6;
+  game.bank = { brick: bankPer, wood: bankPer, sheep: bankPer, wheat: bankPer, ore: bankPer };
+
   game.devDeck = shuffleInPlace(buildDevDeck());
   game.phase = 'setupRound1';
   game.currentPlayerIndex = 0;
   game.setupQueueIndex = 0;
   game.turnNumber = 0;
 
-  return { ok: true, logs: [`Game started with ${game.players.length} players. Setup begins.`] };
+  return {
+    ok: true,
+    logs: [
+      `Game started with ${game.players.length} players on a ${game.board ? Object.keys(game.board.tiles).length : ''}-tile board.`,
+      `${game.players[0].name} plays first.`,
+    ],
+  };
 }
 
 function shuffleInPlace<T>(arr: T[]): T[] {

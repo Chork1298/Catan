@@ -44,6 +44,20 @@ describe('full game engine flow', () => {
     expect(game.phase).toBe('setupRound1');
   });
 
+  it('randomizes who plays first (not always the host)', () => {
+    const firsts = new Set<string>();
+    for (let i = 0; i < 30; i++) {
+      const host = createPlayer('A', 'Alice', true, 0);
+      const game = createInitialGame('T', host);
+      game.players.push(createPlayer('B', 'Bob', false, 1));
+      game.players.push(createPlayer('C', 'Cara', false, 2));
+      game.players.push(createPlayer('D', 'Dan', false, 3));
+      applyAction(game, 'A', { type: 'startGame' });
+      firsts.add(game.players[0].id);
+    }
+    expect(firsts.size).toBeGreaterThan(1);
+  });
+
   it('runs the snake-draft setup giving each player 2 settlements + 2 roads', () => {
     const game = newTwoPlayerGame();
     applyAction(game, 'A', { type: 'startGame' });
@@ -73,39 +87,42 @@ describe('full game engine flow', () => {
     const game = newTwoPlayerGame();
     applyAction(game, 'A', { type: 'startGame' });
     autoSetup(game);
-    // It's A's turn to roll. B cannot roll; A cannot build before rolling.
-    expect(applyAction(game, 'B', { type: 'rollDice' }).ok).toBe(false);
-    expect(applyAction(game, 'A', { type: 'endTurn' }).ok).toBe(false); // must roll first
+    const cur = game.players[game.currentPlayerIndex].id;
+    const other = game.players.find((p) => p.id !== cur)!.id;
+    expect(applyAction(game, other, { type: 'rollDice' }).ok).toBe(false); // not your turn
+    expect(applyAction(game, cur, { type: 'endTurn' }).ok).toBe(false); // must roll first
   });
 
   it('rolls, then allows a legal road build', () => {
     const game = newTwoPlayerGame();
     applyAction(game, 'A', { type: 'startGame' });
     autoSetup(game);
+    const cur = game.players[game.currentPlayerIndex].id;
     const spy = vi.spyOn(Math, 'random').mockReturnValue(0); // dice = 1+1 = 2 (never a 7)
-    const roll = applyAction(game, 'A', { type: 'rollDice' });
+    const roll = applyAction(game, cur, { type: 'rollDice' });
     spy.mockRestore();
     expect(roll.ok).toBe(true);
     expect(game.phase).toBe('main');
 
-    // Hand A enough for a road and place it on a legal edge.
-    const a = game.players[0];
-    a.resources.brick += 1;
-    a.resources.wood += 1;
-    const edge = Object.values(game.board.edges).find((e) => canBuildRoadAt(game.board, e.id, 'A'))!;
-    const build = applyAction(game, 'A', { type: 'buildRoad', edgeId: edge.id });
+    // Hand the current player enough for a road and place it on a legal edge.
+    const player = game.players[game.currentPlayerIndex];
+    player.resources.brick += 1;
+    player.resources.wood += 1;
+    const edge = Object.values(game.board.edges).find((e) => canBuildRoadAt(game.board, e.id, cur))!;
+    const build = applyAction(game, cur, { type: 'buildRoad', edgeId: edge.id });
     expect(build.ok).toBe(true);
-    expect(game.board.edges[edge.id].road).toBe('A');
+    expect(game.board.edges[edge.id].road).toBe(cur);
   });
 
   it('advances turns with endTurn', () => {
     const game = newTwoPlayerGame();
     applyAction(game, 'A', { type: 'startGame' });
     autoSetup(game);
+    const cur = game.players[game.currentPlayerIndex].id;
     const spy = vi.spyOn(Math, 'random').mockReturnValue(0); // never a 7
-    applyAction(game, 'A', { type: 'rollDice' });
+    applyAction(game, cur, { type: 'rollDice' });
     spy.mockRestore();
-    const end = applyAction(game, 'A', { type: 'endTurn' });
+    const end = applyAction(game, cur, { type: 'endTurn' });
     expect(end.ok).toBe(true);
     expect(game.currentPlayerIndex).toBe(1);
     expect(game.phase).toBe('rollDice');

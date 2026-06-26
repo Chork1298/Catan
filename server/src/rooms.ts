@@ -59,7 +59,7 @@ export function joinRoom(rawCode: string, name: string, socketId: string): JoinR
   const room = rooms.get(code);
   if (!room) throw new Error('Room not found');
   if (room.game.phase !== 'lobby') throw new Error('Game already started');
-  if (room.game.players.length >= 4) throw new Error('Room is full (max 4)');
+  if (room.game.players.length >= 10) throw new Error('Room is full (max 10)');
   if (room.game.players.some((p) => p.name === name.trim())) throw new Error('Name already taken');
 
   const playerId = randomUUID();
