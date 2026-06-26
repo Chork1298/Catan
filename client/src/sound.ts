@@ -1,6 +1,11 @@
 // A tiny "ding" using the Web Audio API — no audio file needed. Used to alert a
 // player when it becomes their turn.
+//
+// Browsers forbid starting an AudioContext before the user interacts with the
+// page, so we don't create/resume it until the first gesture. Until then, dings
+// are silently skipped (no console warning).
 let ctx: AudioContext | null = null;
+let primed = false;
 
 function getCtx(): AudioContext | null {
   if (typeof window === 'undefined') return null;
@@ -10,11 +15,24 @@ function getCtx(): AudioContext | null {
   return ctx;
 }
 
+// Create + resume the AudioContext on the first user gesture.
+if (typeof window !== 'undefined') {
+  const prime = () => {
+    primed = true;
+    const c = getCtx();
+    if (c && c.state === 'suspended') void c.resume();
+    window.removeEventListener('pointerdown', prime);
+    window.removeEventListener('keydown', prime);
+  };
+  window.addEventListener('pointerdown', prime, { once: true });
+  window.addEventListener('keydown', prime, { once: true });
+}
+
 export function playDing(): void {
+  if (!primed) return; // no gesture yet — skip silently to avoid the autoplay warning
   try {
     const c = getCtx();
-    if (!c) return;
-    if (c.state === 'suspended') void c.resume();
+    if (!c || c.state !== 'running') return;
     const now = c.currentTime;
     const osc = c.createOscillator();
     const gain = c.createGain();
@@ -32,4 +50,3 @@ export function playDing(): void {
     // Audio is best-effort; never let it break the game.
   }
 }
-

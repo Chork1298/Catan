@@ -883,6 +883,35 @@ button.trade-row,
   margin: 0 0.3rem;
 }
 
+/* Error toast + connection banner */
+.error-toast {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 90;
+  background: #b00020;
+  color: #fff;
+  padding: 0.6rem 1.1rem;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px #0009;
+  font-weight: 600;
+  animation: pop 0.2s ease;
+}
+
+.conn-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 95;
+  text-align: center;
+  background: #8a6d00;
+  color: #fff;
+  padding: 0.35rem;
+  font-weight: 600;
+}
+
 /* Music volume control */
 .music-ctrl {
   display: inline-flex;

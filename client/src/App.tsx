@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { useGame } from './net.js';
 import { Home } from './components/Home.js';
 import { Lobby } from './components/Lobby.js';
@@ -10,6 +11,22 @@ import { GameView } from './components/GameView.js';
 export function App() {
   const { view, logs, announcements, error, connected, createRoom, joinRoom, sendAction, leave } = useGame();
 
+  // Show server action errors (e.g. "Army at capacity") as a brief toast in-game.
+  const [toast, setToast] = useState<string | null>(null);
+  useEffect(() => {
+    if (!error) return;
+    setToast(error);
+    const t = setTimeout(() => setToast(null), 3000);
+    return () => clearTimeout(t);
+  }, [error]);
+
+  const overlays = (
+    <>
+      {view && !connected && <div className="conn-banner">Connection lost — reconnecting…</div>}
+      {view && toast && <div className="error-toast">{toast}</div>}
+    </>
+  );
+
   if (!view) {
     return (
       <main className="app-shell">
@@ -21,6 +38,7 @@ export function App() {
   if (view.game.phase === 'lobby') {
     return (
       <main className="app-shell">
+        {overlays}
         <Lobby
           view={view}
           onSetColor={(color) => sendAction({ type: 'setColor', color })}
@@ -37,6 +55,7 @@ export function App() {
 
   return (
     <main className="game-shell">
+      {overlays}
       <GameView view={view} logs={logs} announcements={announcements} onAction={sendAction} onLeave={leave} />
     </main>
   );

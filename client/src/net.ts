@@ -96,44 +96,40 @@ export function useGame(): UseGame {
   }, []);
 
   const createRoom = useCallback((name: string) => {
-    return new Promise<void>((resolve, reject) => {
+    return new Promise<void>((resolve) => {
       socketRef.current?.emit('createRoom', { name }, (res) => {
         if (res.ok) {
           saveSession({ roomCode: res.roomCode, playerId: res.playerId, token: res.token });
           setError(null);
-          resolve();
         } else {
           setError(res.error);
-          reject(new Error(res.error));
         }
+        resolve();
       });
     });
   }, []);
 
   const joinRoom = useCallback((roomCode: string, name: string) => {
-    return new Promise<void>((resolve, reject) => {
+    return new Promise<void>((resolve) => {
       socketRef.current?.emit('joinRoom', { roomCode, name }, (res) => {
         if (res.ok) {
           saveSession({ roomCode: res.roomCode, playerId: res.playerId, token: res.token });
           setError(null);
-          resolve();
         } else {
           setError(res.error);
-          reject(new Error(res.error));
         }
+        resolve();
       });
     });
   }, []);
 
+  // Fire-and-forget from click handlers — never reject (that would be an unhandled
+  // rejection); surface the server's reason via the error state + a transient toast.
   const sendAction = useCallback((action: Action) => {
-    return new Promise<void>((resolve, reject) => {
+    return new Promise<void>((resolve) => {
       socketRef.current?.emit('action', { action }, (res) => {
-        if (res.ok) {
-          resolve();
-        } else {
-          setError(res.error);
-          reject(new Error(res.error));
-        }
+        if (!res.ok) setError(res.error);
+        resolve();
       });
     });
   }, []);
